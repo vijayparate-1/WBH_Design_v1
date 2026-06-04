@@ -68,7 +68,7 @@ function getGlycolDensity(T_C: number, pct: number): number {
   return rho_water * (1 - x) + rho_meg * x;
 }
 
-// ─── STAGE 2 — FIRETUBE SIZING ────────────────────────────────────────────────
+// ─── STAGE 2 — FIRETUBE SIZING (PATCHED WITH DYNAMIC FIELDS) ──────────────────
 export interface Stage2Inputs {
   Q_net_kW: number;
   burnerConfig: string;
@@ -84,6 +84,9 @@ export interface Stage2Inputs {
   excessAir_pct: number;
   stackHeightM: number;
   stackDiaMm: number;
+  // Dynamic fields incoming from Stage 1 gas streams
+  lhvFuel_kJkg?: number;
+  mwFuel?: number;
 }
 
 export interface Stage2Results {
@@ -112,10 +115,12 @@ export function calcStage2(inputs: Stage2Inputs, Q_net_kW?: number): Stage2Resul
   const Q_per_burner = Q_gross / nBurners;
   const Q_burner_rated = Q_gross * inputs.burnerRatingFactor;
 
-  const LHV_kJkg = 47000;
+  // Resolved Unit Conversion Alignment: Prioritize real-gas stream values from Stage 1
+  const LHV_kJkg = inputs.lhvFuel_kJkg ?? 47000;
+  const MW_fuel = inputs.mwFuel ?? 16.04;
+
   const m_fuel_kgs = Q_gross / LHV_kJkg;
   const m_fuel_kghr = m_fuel_kgs * 3600;
-  const MW_fuel = 16.04;
   const rho_fuel = MW_fuel / 1000 / (8.314 * 288.15 / 101325);
   const V_fuel_Nm3hr = m_fuel_kghr / rho_fuel;
 
@@ -180,10 +185,10 @@ export interface Stage3Inputs {
   P_maop_kPa: number; P_design_kPa: number; T_design_C: number;
   corrAllow_mm: number; safetyFactor: number; uMethod: string;
   legLengthFixed?: number;
-  // Dynamic parameters safely mapping density metrics directly from Stage 1
   rhoGasIn?: number; rhoGasOut?: number; massFlowKgh?: number;
 }
-// FIX: Move this interface declaration block above Stage3Results
+
+// Relocated NodalNode interface to clear Turbopack sequence boundaries
 export interface NodalNode {
   x: number;      // position m from inlet
   T_g_in: number; // gas temp °C
@@ -191,6 +196,7 @@ export interface NodalNode {
   T_wall: number; // inner wall temp
   dQ: number;     // heat transferred this node kW
 }
+
 export interface Stage3Results {
   LMTD: number; U_Wm2K: number; uMethod: string; Ac_design: number;
   pipe: CoilPipeData; nps_k: string; sched: { nm: string; wt: number };
@@ -283,7 +289,6 @@ export function calcStage3(inputs: Stage3Inputs): Stage3Results {
   const f_ratio = deanNumber > 11 ? 1 + 0.033 * Math.pow(Math.log10(deanNumber), 4) : 1.0;
   const f_bend = f * f_ratio;
 
-  // Loss calculated over the representative single path line (L_pass) rather than L_total
   const dP_straight_Pa = f * (L_pass / di_m) * (rho_avg * vel ** 2 / 2);
   const dP_bends_Pa = n_bends_path * f_bend * (Math.PI * r_bend_m / di_m) * (rho_avg * vel ** 2 / 2);
   
