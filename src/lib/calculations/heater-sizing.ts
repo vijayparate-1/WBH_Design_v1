@@ -256,6 +256,13 @@ export interface Stage3Results {
   flangeClass: string;
   nodalProfile?: NodalNode[];
 }
+export interface NodalNode {
+  x: number;      // position m from inlet
+  T_g_in: number; // gas temp °C
+  Tb: number;     // bath temp local
+  T_wall: number; // inner wall temp
+  dQ: number;     // heat transferred this node kW
+}
 
 const U_METHODS: Record<string, number> = {
   natco_lo:  250,   
