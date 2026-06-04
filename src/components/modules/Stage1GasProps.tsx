@@ -385,8 +385,8 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
                   <ResultGrid cols={4}>
                     <ResultCard label="MW mix" value={results.MW} unit="g/mol" decimals={3} variant="highlight" />
                     <ResultCard label="Spec. Gravity (Air=1)" value={results.SG} decimals={4} variant="highlight" />
-                    <ResultCard label="Pseudo-Tc" value={results.Tc_pc} unit="K" decimals={1} />
-                    <ResultCard label="Pseudo-Pc" value={results.Pc_pc} unit="bar" decimals={2} />
+                    <ResultCard label="Pseudo-Tc" value={results.pc.Tc_pc} unit="K" decimals={1} />
+                    <ResultCard label="Pseudo-Pc" value={results.pc.Pc_pc} unit="bar" decimals={2} />
                   </ResultGrid>
 
                   <ResultGrid cols={3}>
