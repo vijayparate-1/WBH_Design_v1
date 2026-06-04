@@ -273,6 +273,7 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
   const [loading, setLoading] = useState(false);
   const [subTab, setSubTab] = useState<'props'|'cp'|'hv'|'jt'|'comb'>('props');
   const [error, setError] = useState('');
+  const [combInputs, setCombInputs] = useState({ altitude:0, rh:60, excessAir:25, T_amb:15 });
 
   // Composition total — user enters mol%, so sum should be ~100
   const total = COMP_LIST.reduce((s, [i]) => s + parseFloat(form.comp[i] ?? '0'), 0);
@@ -339,6 +340,38 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
   const ST = (pt: GasStatePoint | undefined) => pt as unknown as Record<string, number> | undefined;
 
   // Joule-Thomson calc (from results)
+  // Combustion flue gas composition (stoichiometric + excess air + humidity)
+  const combFlue = results?.heatingValues ? (() => {
+    const { altitude, rh, excessAir, T_amb } = combInputs;
+    // Air density at altitude: ρ = 1.225 * exp(-altitude/8500) * (288.15/(T_amb+273.15))
+    const rho_air = 1.225 * Math.exp(-altitude/8500) * (288.15/(T_amb+273.15));
+    // Water vapour partial pressure at T_amb (Magnus formula)
+    const psat = 0.6108 * Math.exp(17.27*T_amb/(T_amb+237.3)); // kPa
+    const p_atm = 101.325 * Math.exp(-altitude/8500); // kPa
+    const h2o_air_vol = rh/100 * psat / p_atm; // vol fraction water in air
+    const dry_air_frac = 1 - h2o_air_vol;
+    // Stoichiometric AFR for NG: ~17.2 mass; ~9.52 vol (O2 basis: CH4 + 2O2 → CO2 + 2H2O)
+    const afr_actual = 17.2 * (1 + excessAir/100);
+    const m_air = afr_actual; // per kg fuel
+    const m_flue = 1 + m_air; // kg flue per kg fuel
+    // Flue gas composition (vol%): simplified for lean NG
+    const moles_fuel = 1/results.MW; // mol/kg
+    const ch4_frac = form.comp[0] ? parseFloat(form.comp[0])/100 : 0.92;
+    const moles_co2 = moles_fuel; // ~1 CO2 per CH4 (lean gas approx)
+    const moles_h2o = moles_fuel * 2 * ch4_frac + m_air * h2o_air_vol / 0.018;
+    const moles_o2_in = m_air * dry_air_frac / 28.97 * 0.21 * 28.97 / 32;
+    const moles_o2_used = moles_fuel * 2 * ch4_frac;
+    const moles_o2_excess = Math.max(0, moles_o2_in - moles_o2_used);
+    const moles_n2 = m_air * dry_air_frac / 28.97 * 0.79;
+    const total_moles = moles_co2 + moles_h2o + moles_o2_excess + moles_n2;
+    const co2_pct = moles_co2/total_moles*100;
+    const h2o_pct = moles_h2o/total_moles*100;
+    const o2_pct = moles_o2_excess/total_moles*100;
+    const n2_pct = moles_n2/total_moles*100;
+    const mw_flue = (co2_pct*44 + h2o_pct*18 + o2_pct*32 + n2_pct*28)/100;
+    return { co2_pct, h2o_pct, o2_pct, n2_pct, mw_flue, rho_air };
+  })() : null;
+
   const calcJT = () => {
     if (!results) return null;
     const mu = results.pressureWarning
@@ -700,13 +733,13 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
                       </thead>
                       <tbody>
                         {[
-                          { key:'Cp0_kgK', label:'Cp°', desc:'Ideal gas (DIPPR 107)' },
-                          { key:'Cp1_kgK', label:'M1', desc:'PR analytic Cv departure' },
-                          { key:'Cp2_kgK', label:'M2', desc:'PR numeric dH/dT' },
-                          { key:'Cp3_kgK', label:'M3', desc:'PR numeric T·dS/dT' },
+                          { key:'Cp0_kgK', label:'Cp°', desc:'Ideal gas — DIPPR 107 Aly-Lee' },
+                          { key:'Cp1_kgK', label:'M1', desc:'Peng-Robinson analytic' },
+                          { key:'Cp2_kgK', label:'M2', desc:'Peng-Robinson dH/dT' },
+                          { key:'Cp3_kgK', label:'M3', desc:'Peng-Robinson T·dS/dT' },
                           { key:'Cp4_kgK', label:'M4', desc:'SRK Soave (1972)' },
                           { key:'Cp5_kgK', label:'M5 ★', desc:'avg(M1+M2) — recommended <50 barg' },
-                          { key:'Cp6_kgK', label:'M6', desc:'PR full ΔH departure — 50-100 barg' },
+                          { key:'Cp6_kgK', label:'M6', desc:'Peng-Robinson ΔH departure' },
                           { key:'Cp7_kgK', label:'M7', desc:'Lee-Kesler — >100 barg' },
                         ].map(row => {
                           const inVal = ST(results.ST_in)?.[row.key];
@@ -965,11 +998,51 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
                         ))}
                       </tbody>
                     </table>
+                    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginTop:10 }}>
+                      <div>
+                        <label className="field-label">Site Altitude</label>
+                        <input type="number" defaultValue="0" id="comb_alt" style={{ width:'100%' }}
+                          onChange={e => setCombInputs(p => ({...p, altitude: parseFloat(e.target.value)}))} />
+                        <span style={{ fontSize:10, color:'var(--text-dim)' }}>m ASL</span>
+                      </div>
+                      <div>
+                        <label className="field-label">Relative Humidity</label>
+                        <input type="number" defaultValue="60" min="0" max="100" id="comb_rh" style={{ width:'100%' }}
+                          onChange={e => setCombInputs(p => ({...p, rh: parseFloat(e.target.value)}))} />
+                        <span style={{ fontSize:10, color:'var(--text-dim)' }}>%</span>
+                      </div>
+                      <div>
+                        <label className="field-label">Excess Air</label>
+                        <input type="number" defaultValue="25" min="10" max="100" id="comb_ea" style={{ width:'100%' }}
+                          onChange={e => setCombInputs(p => ({...p, excessAir: parseFloat(e.target.value)}))} />
+                        <span style={{ fontSize:10, color:'var(--text-dim)' }}>%</span>
+                      </div>
+                      <div>
+                        <label className="field-label">Ambient Temperature</label>
+                        <input type="number" defaultValue="15" id="comb_tamb" style={{ width:'100%' }}
+                          onChange={e => setCombInputs(p => ({...p, T_amb: parseFloat(e.target.value)}))} />
+                        <span style={{ fontSize:10, color:'var(--text-dim)' }}>°C</span>
+                      </div>
+                    </div>
+                    {combFlue && (
+                      <table className="res-table" style={{ marginTop:10, fontSize:11 }}>
+                        <thead><tr><th>Flue Gas Component</th><th>Volume %</th><th>Note</th></tr></thead>
+                        <tbody>
+                          <tr><td>CO₂</td><td className="val">{combFlue.co2_pct.toFixed(2)}%</td><td style={{fontSize:10}}>Complete combustion</td></tr>
+                          <tr><td>H₂O (vapour)</td><td className="val">{combFlue.h2o_pct.toFixed(2)}%</td><td style={{fontSize:10}}>Incl. humidity</td></tr>
+                          <tr><td>O₂ (excess)</td><td className="val">{combFlue.o2_pct.toFixed(2)}%</td><td style={{fontSize:10}}>Excess air</td></tr>
+                          <tr><td>N₂</td><td className="val">{combFlue.n2_pct.toFixed(2)}%</td><td style={{fontSize:10}}>From air + fuel</td></tr>
+                          <tr><td>Flue gas MW</td><td className="val">{combFlue.mw_flue.toFixed(2)}</td><td style={{fontSize:10}}>g/mol</td></tr>
+                          <tr><td>Air density at altitude</td><td className="val">{combFlue.rho_air.toFixed(4)}</td><td style={{fontSize:10}}>kg/m³</td></tr>
+                          <tr><td>Theoretical AFR</td><td className="val">17.2</td><td style={{fontSize:10}}>kg air/kg fuel</td></tr>
+                          <tr><td>Actual AFR ({combInputs.excessAir}% excess)</td><td className="val">{(17.2*(1+combInputs.excessAir/100)).toFixed(2)}</td><td style={{fontSize:10}}>kg air/kg fuel</td></tr>
+                        </tbody>
+                      </table>
+                    )}
                     <div className="note-box" style={{ marginTop:10, fontSize:10 }}>
-                      Stoichiometric air-fuel ratio: 17.2 kg air/kg fuel (natural gas).
-                      Flue gas MW ≈ 28.5–29 g/mol (air + combustion products).
-                      AS 3814 / AS 1228 require excess air ≥ 10% for stability.
-                      Typical WBH setting: 20–30% excess air.
+                      Stoichiometric AFR: 17.2 kg air/kg fuel (natural gas, ISO 13443).
+                      AS 3814 / AS 1228: excess air ≥ 10% for flame stability.
+                      Typical WBH: 20–30% excess. Altitude reduces air density — derate burner accordingly.
                     </div>
                   </>
                 ) : (

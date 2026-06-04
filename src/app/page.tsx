@@ -16,13 +16,14 @@ import SourGasTab from '@/components/modules/SourGasTab';
 import ExpTankTab from '@/components/modules/ExpTankTab';
 import HTAnalyserTab from '@/components/modules/HTAnalyserTab';
 import ValidationCasesTab from '@/components/modules/ValidationCasesTab';
+import ShellSketcherTab from '@/components/modules/ShellSketcherTab';
 import type { Stage1Results } from '@/lib/calculations/thermodynamics';
 import type { Stage2Results, Stage3Results } from '@/lib/calculations/heater-sizing';
 
 type ActiveTab =
   | 'stage1' | 'stage2' | 'stage3' | 'summary'
   | 'projects' | 'insulation' | 'bom'
-  | 'sour' | 'exptank' | 'htanalyser' | 'validation';
+  | 'sour' | 'exptank' | 'htanalyser' | 'validation' | 'sketcher';
 
 interface DesignState {
   s1?: Stage1Results;
@@ -41,7 +42,8 @@ const TABS = [
   { id:'sour',       label:'☠ Sour Gas',        color: '#7a1aa0' },
   { id:'htanalyser', label:'📈 HT Analyser',   color: '#1a5a8a' },
   { id:'bom',        label:'📋 BOM',            color: '#1a6a3e' },
-  { id:'validation', label:'✔ Validation',      color: '#5a5a00' },
+  { id:'validation',  label:'✔ Validation',      color: '#5a5a00' },
+  { id:'sketcher',    label:'🔷 Shell Sketcher',  color: '#2d7a55' },
 ] as const;
 
 export default function WBHDesignPage() {
@@ -73,6 +75,7 @@ export default function WBHDesignPage() {
         {activeTab === 'htanalyser' && <HTAnalyserTab s1Results={design.s1} s2Results={design.s2} s3Results={design.s3} />}
         {activeTab === 'bom'        && <BOMTab s2Results={design.s2} s3Results={design.s3} />}
         {activeTab === 'validation' && <ValidationCasesTab />}
+        {activeTab === 'sketcher'   && <ShellSketcherTab s2Results={design.s2} s3Results={design.s3} />}
       </main>
     </div>
   );

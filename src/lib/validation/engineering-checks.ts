@@ -102,34 +102,43 @@ export const coilConfigSchema = z.object({
 /**
  * Validate gas composition (mole balance, H2S/CO2 sour limits, etc.)
  */
+// checkGasComposition accepts EITHER mol fractions (sum≈1) OR mol% (sum≈100)
+// Auto-detects by checking if sum is near 1 or near 100, then normalises internally
 export function checkGasComposition(
-  molePcts: number[],
+  composition: number[],
   { P_kPa, T_C }: { P_kPa?: number; T_C?: number } = {}
 ): ValidationReport {
   const msgs: ValidationResult[] = [];
-  const total = molePcts.reduce((s, v) => s + v, 0);
+  const rawSum = composition.reduce((s, v) => s + v, 0);
 
-  if (Math.abs(total - 100) > 1.0) {
+  // Auto-detect: if sum is near 1.0 → mol fractions; if near 100 → mol%
+  // Convert everything to mol fractions for internal use
+  const isFractions = rawSum < 2.0;
+  const moleFracs = isFractions ? composition : composition.map(v => v / 100);
+  const total = moleFracs.reduce((s, v) => s + v, 0);
+
+  if (Math.abs(total - 1.0) > 0.01) {
     msgs.push({
       code: 'COMP_SUM',
       field: 'composition',
-      message: `Composition total is ${total.toFixed(2)} mol% — must be 100%. Normalise before calculating.`,
+      message: `Composition total is ${(total * 100).toFixed(2)} mol% — must be 100%. Normalise before calculating.`,
       severity: 'error',
     });
-  } else if (Math.abs(total - 100) > 0.1) {
+  } else if (Math.abs(total - 1.0) > 0.0001) {
     msgs.push({
       code: 'COMP_SUM_WARN',
-      message: `Composition sums to ${total.toFixed(3)} mol% — slight imbalance. Results may be inaccurate.`,
+      message: `Composition sums to ${(total * 100).toFixed(3)} mol% — slight imbalance; normalised internally.`,
       severity: 'warning',
     });
   }
 
-  const h2s = molePcts[11] ?? 0;
-  const co2 = molePcts[10] ?? 0;
-  const h2sPa = h2s / 100 * (P_kPa ?? 0) * 1000;
+  // All downstream checks use mol fractions (0-1)
+  const h2s = moleFracs[11] ?? 0;
+  const co2 = moleFracs[10] ?? 0;
+  const h2sPa = h2s * (P_kPa ?? 0) * 1000;
 
   // NACE MR0175 / ISO 15156 sour threshold: H2S partial pressure > 0.3 kPa absolute
-  if (h2s > 0 && P_kPa && h2sPa > 300) {
+  if (h2s > 0 && P_kPa && h2sPa > 300) { // h2sPa = h2s_fraction * P_kPa * 1000 Pa = partial pressure Pa
     msgs.push({
       code: 'SOUR_THRESHOLD',
       field: 'h2s',
@@ -138,27 +147,27 @@ export function checkGasComposition(
       reference: 'NACE MR0175 / ISO 15156 §2.3',
     });
   }
-  if (h2s > 5) {
+  if (h2s > 0.05) { // >5 mol%
     msgs.push({
       code: 'HIGH_H2S',
-      message: `High H₂S concentration (${h2s}%) — verify material selection for all wetted parts.`,
+      message: `High H₂S concentration (${(h2s*100).toFixed(1)}%) — verify material selection for all wetted parts.`,
       severity: 'warning',
       reference: 'AS 4041 / ASME B31.3 §323.4.2',
     });
   }
-  if (co2 > 8) {
+  if (co2 > 0.08) { // >8 mol%
     msgs.push({
       code: 'HIGH_CO2',
-      message: `CO₂ concentration ${co2}% is high — check for corrosion risk and PR-EOS accuracy near critical point.`,
+      message: `CO₂ concentration ${(co2*100).toFixed(1)}% is high — check for corrosion risk and PR-EOS accuracy near critical point.`,
       severity: 'info',
     });
   }
 
   // Methane check
-  if ((molePcts[0] ?? 0) < 50 && total > 90) {
+  if ((moleFracs[0] ?? 0) < 0.50 && total > 0.90) {
     msgs.push({
       code: 'LOW_METHANE',
-      message: 'Methane < 50% — ensure gas composition is correct. Rich gas / LPG-heavy streams may require additional checks.',
+      message: `Methane ${((moleFracs[0] ?? 0) * 100).toFixed(1)}% — Rich gas / LPG-heavy stream. Verify composition. PR-EOS accuracy may reduce for heavy mixtures.`,
       severity: 'info',
     });
   }
