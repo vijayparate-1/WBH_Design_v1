@@ -183,7 +183,14 @@ export interface Stage3Inputs {
   // Dynamic parameters safely mapping density metrics directly from Stage 1
   rhoGasIn?: number; rhoGasOut?: number; massFlowKgh?: number;
 }
-
+// FIX: Move this interface declaration block above Stage3Results
+export interface NodalNode {
+  x: number;      // position m from inlet
+  T_g_in: number; // gas temp °C
+  Tb: number;     // bath temp local
+  T_wall: number; // inner wall temp
+  dQ: number;     // heat transferred this node kW
+}
 export interface Stage3Results {
   LMTD: number; U_Wm2K: number; uMethod: string; Ac_design: number;
   pipe: CoilPipeData; nps_k: string; sched: { nm: string; wt: number };
