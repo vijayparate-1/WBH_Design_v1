@@ -1,6 +1,7 @@
 'use client';
 // src/components/modules/Stage1GasProps.tsx
 // Stage 1 — PR-EOS Gas Properties UI Module (v4 Production Ready)
+// Fully realized display components across all tabs
 
 import { useState, useCallback } from 'react';
 import ValidationPanel from '@/components/ui/ValidationPanel';
@@ -28,7 +29,7 @@ const COMP_LIST = [
   [6,'n-Pentane','nC₅'],[7,'n-Hexane','nC₆'],[8,'n-Heptane','nC₇'],
   [9,'Nitrogen','N₂'],[10,'Carbon Dioxide','CO₂'],[11,'H₂S','H₂S'],
   [12,'Helium','He'],[13,'Hydrogen','H₂'],
- ] as const;
+] as const;
 
 const METHODS = [
   { v:'1', label:'M1', desc:'PR Analytic' },
@@ -396,7 +397,6 @@ function JTSubTab({ results, form, f, ST }: JTProps) {
         </div>
       </div>
 
-      {/* RIGHT PANEL */}
       <div>
         <div className="panel" style={{ marginBottom:12 }}>
           <div className="panel-header"><div className="panel-title" style={{ color:'var(--blue)' }}>T vs P — Isenthalpic Expansion (No Heater)</div></div>
@@ -557,6 +557,7 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
         ))}
       </div>
 
+      {/* ── TAB ①: GAS PROPERTIES & EOS ── */}
       {subTab === 'props' && (
         <div style={{ display:'grid', gridTemplateColumns:'480px 1fr', gap:16, alignItems:'start' }}>
           <div>
@@ -664,41 +665,292 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
         </div>
       )}
 
+      {/* ── TAB ②: Cp METHOD COMPARISON ── */}
       {subTab === 'cp' && results && (
-        <div className="panel">
-          <div className="panel-body">
-            <CpComparisonChart results={results} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <div className="panel" style={{ marginBottom: 12 }}>
+              <div className="panel-header"><div className="panel-title">Cp Calculation Matrix — 7 Independent Methods</div></div>
+              <div className="panel-body">
+                <CpComparisonChart results={results} />
+                
+                <table className="res-table" style={{ fontSize: 11, marginTop: 12 }}>
+                  <thead>
+                    <tr>
+                      <th>Method</th>
+                      <th>Thermodynamic Description</th>
+                      <th className="val">Inlet [kJ/kg·K]</th>
+                      <th className="val">Outlet [kJ/kg·K]</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[
+                      { key: 'Cp0_kgK', label: 'Cp° Baseline', desc: 'Ideal Gas Limits — DIPPR 107 Aly-Lee Hyperbolic' },
+                      { key: 'Cp1_kgK', label: 'Method 1', desc: 'PR Analytical Cv Departure Engine' },
+                      { key: 'Cp2_kgK', label: 'Method 2', desc: 'PR Numeric Central Difference Enthalpy' },
+                      { key: 'Cp3_kgK', label: 'Method 3', desc: 'PR Numeric Central Difference Entropy' },
+                      { key: 'Cp4_kgK', label: 'Method 4', desc: 'Genuine Soave-Redlich-Kwong (SRK 1972)' },
+                      { key: 'Cp5_kgK', label: 'Method 5 ★', desc: 'Averaged Engine (M1 + M2) — Optimal < 50 barg' },
+                      { key: 'Cp6_kgK', label: 'Method 6', desc: 'Full PR Enthalpy Departure Envelope' },
+                      { key: 'Cp7_kgK', label: 'Method 7', desc: 'Lee-Kesler Plait Point BWR Track — Optimal > 100 barg' },
+                    ].map(row => {
+                      const inVal = ST(results.ST_in)?.[row.key];
+                      const outVal = ST(results.ST_out)?.[row.key];
+                      const isSelected = form.basis === row.label.replace('Method ', '').replace(' ★', '');
+                      return (
+                        <tr key={row.key} style={{ 
+                          background: isSelected ? 'rgba(176,96,0,0.06)' : undefined,
+                          fontWeight: isSelected ? 600 : 400 
+                        }}>
+                          <td style={{ fontFamily: 'var(--mono)', color: isSelected ? 'var(--accent)' : 'inherit' }}>{row.label}</td>
+                          <td style={{ color: 'var(--text-dim)', fontSize: 10 }}>{row.desc}</td>
+                          <td className="val" style={{ fontFamily: 'var(--mono)' }}>{f(inVal, 4)}</td>
+                          <td className="val" style={{ fontFamily: 'var(--mono)' }}>{f(outVal, 4)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="panel" style={{ marginBottom: 12 }}>
+              <div className="panel-header"><div className="panel-title">Stability & Variance Analysis</div></div>
+              <div className="panel-body">
+                {(() => {
+                  const m1 = ST(results.ST_in)?.Cp1_kgK ?? 0;
+                  const m6 = ST(results.ST_in)?.Cp6_kgK ?? 0;
+                  const variance = m6 > 0 ? (Math.abs(m1 - m6) / m6) * 100 : 0;
+                  const isHighVariance = variance > 5.0;
+                  return (
+                    <>
+                      <div className={`alert ${isHighVariance ? 'alert-warn' : 'alert-ok'}`} style={{ marginBottom: 12 }}>
+                        {isHighVariance 
+                          ? `⚠ High EOS Derivative Drift: M1 vs M6 variance is ${variance.toFixed(2)}%. Fluid state is highly non-ideal. Avoid analytical methods; rely strictly on Enthalpy Differences (M6 or M7).`
+                          : `✔ EOS Convergence Stable: M1 vs M6 derivative drift is tightly bounded at ${variance.toFixed(2)}%.`
+                        }
+                      </div>
+                      
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                        <ResultCard label="Isochoric Cv (Inlet)" value={ST(results.ST_in)?.Cv_kgK} unit="kJ/kg·K" decimals={4} />
+                        <ResultCard label="Isentropic Exponent (γ)" value={ST(results.ST_in)?.gamma} unit="Cp/Cv" decimals={4} variant="highlight" />
+                      </div>
+                    </>
+                  );
+                })()}
+                <div className="note-box" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                  <strong>Process Guidance on Exponent Tracking:</strong>
+                  <br />
+                  The real gas heat capacity ratio $\gamma$ directly influences compressor performance profiles and flow boundaries through high-pressure piping manifolds. While ideal gas methane hovers near $1.31$, dense pipeline configurations at high pressures drop toward $1.6 - 1.9$, reducing the adiabatic temperature rises across process systems.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
+      {/* ── TAB ③: HEATING VALUES ── */}
       {subTab === 'hv' && results?.heatingValues && (
-        <div className="panel">
-          <div className="panel-body">
-            <ResultGrid>
-              <ResultCard label="HHV (Gross CV)" value={results.heatingValues.HHV_kJkg} unit="kJ/kg" decimals={0} variant="highlight" />
-              <ResultCard label="LHV (Net CV)" value={results.heatingValues.LHV_kJkg} unit="kJ/kg" decimals={0} variant="highlight" />
-            </ResultGrid>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <div className="panel">
+              <div className="panel-header"><div className="panel-title">Contractual Heating Metrics & Wobbe Realignment</div></div>
+              <div className="panel-body">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                  <ResultCard label="Gross Calorific Value (HHV)" value={results.heatingValues.HHV_kJkg} unit="kJ/kg" decimals={0} variant="highlight" />
+                  <ResultCard label="Net Calorific Value (LHV)" value={results.heatingValues.LHV_kJkg} unit="kJ/kg" decimals={0} variant="highlight" />
+                  <ResultCard label="Volumetric HHV (15°C)" value={results.heatingValues.HHV_MJNm3} unit="MJ/Nm³" decimals={3} />
+                  <ResultCard label="Wobbe Index (Iw)" value={results.heatingValues.WobbeIdx} unit="MJ/Nm³" decimals={2} />
+                </div>
+
+                {(() => {
+                  const iw = results.heatingValues.WobbeIdx;
+                  const isAs4564Compliant = iw >= 46.0 && iw <= 52.0;
+                  return (
+                    <div className={`alert ${isAs4564Compliant ? 'alert-ok' : 'alert-fail'}`} style={{ marginBottom: 12 }}>
+                      {isAs4564Compliant
+                        ? `✔ AS 4564 Compliant Pipeline Spec: Wobbe Index (${iw.toFixed(2)} MJ/Nm³) falls cleanly within standard Australian pipeline grid distribution guidelines.`
+                        : `✘ Out of Specification: Wobbe Index (${iw.toFixed(2)} MJ/Nm³) violates AS 4564 constraints (Target: 46.0 – 52.0 MJ/Nm³). High risk of appliance burner flashback.`
+                      }
+                    </div>
+                  );
+                })()}
+
+                <table className="res-table" style={{ fontSize: 11 }}>
+                  <thead>
+                    <tr>
+                      <th>Volumetric Capacity Conversion</th>
+                      <th className="val">Flowrate</th>
+                      <th>Unit Basis</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>Equivalent Normal Volumetric Flow</td>
+                      <td className="val" style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{f(results.mdot_kgs * 3600 / (results.MW / 22.414), 1)}</td>
+                      <td>Nm³/hr (at 0°C, 101.325 kPa)</td>
+                    </tr>
+                    <tr>
+                      <td>Equivalent Standard Volumetric Flow</td>
+                      <td className="val" style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{f(results.mdot_kgs * 3600 / (results.MW / 23.645), 1)}</td>
+                      <td>Sm³/hr (at 15°C, 101.325 kPa)</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="panel">
+              <div className="panel-header"><div className="panel-title">Energy Distribution Profiles</div></div>
+              <div className="panel-body">
+                {(() => {
+                  const HHV_vals = [55695, 51877, 50330, 49360, 49500, 48583, 48643, 47793, 47641, 0, 0, 21900, 0, 141800];
+                  const ySum = COMP_LIST.reduce((s, [i]) => s + parseFloat(form.comp[i] ?? '0'), 0);
+                  const contribs = COMP_LIST.map(([i, n, f2]) => ({
+                    name: String(f2),
+                    val: (parseFloat(form.comp[i] ?? '0') / ySum) * HHV_vals[i],
+                  })).filter(d => d.val > 10).sort((a, b) => b.val - a.val);
+                  return (
+                    <SparkBar
+                      values={contribs.map(d => d.val)}
+                      labels={contribs.map(d => d.name)}
+                      colors={['#c04000', '#1a6ab8', '#0e7a3e', '#7a1ab0', '#e09000', '#1a8ab0']}
+                      title="Weighted HHV Contribution Mix"
+                      unit="kJ/kg"
+                      yMin={0}
+                    />
+                  );
+                })()}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
+      {/* ── TAB ④: JOULE-THOMSON ── */}
       {subTab === 'jt' && (
         <JTSubTab results={results} form={form} f={f} ST={ST} />
       )}
 
+      {/* ── TAB ⑤: COMBUSTION ── */}
       {subTab === 'comb' && results && (
-        <div className="panel">
-          <div className="panel-body">
-            <h3>Combustion Balance</h3>
-            {combFlue && (
-              <table className="res-table">
-                <tbody>
-                  <tr><td>Flue Gas CO₂</td><td>{combFlue.co2_pct.toFixed(2)}%</td></tr>
-                  <tr><td>Flue Gas H₂O</td><td>{combFlue.h2o_pct.toFixed(2)}%</td></tr>
-                </tbody>
-              </table>
-            )}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <div className="panel" style={{ marginBottom: 12 }}>
+              <div className="panel-header"><div className="panel-title">Air Requirements & Barometric Burner Derating</div></div>
+              <div className="panel-body">
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginBottom: 12 }}>
+                  <div>
+                    <label className="field-label">Site Altitude [m]</label>
+                    <input type="number" value={combInputs.altitude} min="0" max="5000"
+                      onChange={e => setCombInputs(p => ({...p, altitude: parseFloat(e.target.value) || 0}))} />
+                    <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>m above sea level</span>
+                  </div>
+                  <div>
+                    <label className="field-label">Excess Air [%]</label>
+                    <input type="number" value={combInputs.excessAir} min="0" max="200"
+                      onChange={e => setCombInputs(p => ({...p, excessAir: parseFloat(e.target.value) || 0}))} />
+                    <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>Target: 20–30% WBH</span>
+                  </div>
+                  <div>
+                    <label className="field-label">Ambient Temp [°C]</label>
+                    <input type="number" value={combInputs.T_amb} min="-40" max="60"
+                      onChange={e => setCombInputs(p => ({...p, T_amb: parseFloat(e.target.value) || 0}))} />
+                    <span style={{ fontSize: 10, color: 'var(--text-dim)' }}>Burner inlet air T</span>
+                  </div>
+                </div>
+
+                {combFlue && (
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+                      <ResultCard label="Actual Air/Fuel Ratio" value={17.2 * (1 + combInputs.excessAir / 100)} unit="kg_air/kg_fuel" decimals={2} />
+                      <ResultCard label="Local Air Density" value={combFlue.rho_air} unit="kg/m³" decimals={4} variant="highlight" />
+                    </div>
+
+                    <table className="res-table" style={{ fontSize: 11 }}>
+                      <thead>
+                        <tr>
+                          <th>Flue Gas Constituent</th>
+                          <th className="val">Molar Stream Fraction</th>
+                          <th>Status Flag</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Carbon Dioxide (CO₂)</td>
+                          <td className="val" style={{ fontFamily: 'var(--mono)' }}>{combFlue.co2_pct.toFixed(2)}%</td>
+                          <td>Stoichiometric Product</td>
+                        </tr>
+                        <tr>
+                          <td>Water Vapor (H₂O)</td>
+                          <td className="val" style={{ fontFamily: 'var(--mono)' }}>{combFlue.h2o_pct.toFixed(2)}%</td>
+                          <td>Fuel Yield + Humid Carrier</td>
+                        </tr>
+                        <tr>
+                          <td>Excess Oxygen (O₂)</td>
+                          <td className="val" style={{ fontFamily: 'var(--mono)' }}>{combFlue.o2_pct.toFixed(2)}%</td>
+                          <td>Flame Containment Margin</td>
+                        </tr>
+                        <tr>
+                          <td>Nitrogen (N₂)</td>
+                          <td className="val" style={{ fontFamily: 'var(--mono)' }}>{combFlue.n2_pct.toFixed(2)}%</td>
+                          <td>Inert Thermal Mass Balance</td>
+                        </tr>
+                        <tr style={{ borderTop: '1px solid var(--border)', fontWeight: 600 }}>
+                          <td>Flue Stream Mean MW</td>
+                          <td className="val" style={{ fontFamily: 'var(--mono)' }}>{combFlue.mw_flue.toFixed(2)}</td>
+                          <td>g/mol</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div className="panel" style={{ marginBottom: 12 }}>
+              <div className="panel-header"><div className="panel-title">NACE MR0175 / ISO 15156 Sour Hazard Check</div></div>
+              <div className="panel-body">
+                {(() => {
+                  const h2s_pct = parseFloat(form.comp[11] ?? '0');
+                  const pH2S_kPa = (h2s_pct / 100) * results.P_kPa;
+                  const isSour = pH2S_kPa > 0.3;
+                  return (
+                    <>
+                      <div className={`alert ${isSour ? 'alert-fail' : 'alert-ok'}`} style={{ marginBottom: 12 }}>
+                        {isSour
+                          ? `✘ SOUR HAZARD METALLURGY TRIGGERED: H₂S Partial Pressure is ${pH2S_kPa.toFixed(3)} kPa. This exceeds the 0.3 kPa NACE limit. Materials must comply with NACE MR0175 to avoid Sulfide Stress Cracking (SSC).`
+                          : `✔ Material Compliance Cleared: H₂S Partial Pressure is ${pH2S_kPa.toFixed(4)} kPa, sitting below the NACE risk limit.`
+                        }
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <ResultCard label="H2S Partial Pressure" value={pH2S_kPa} unit="kPa" decimals={4} />
+                        <ResultCard label="NACE SSC Threshold" value={0.3} unit="kPa" decimals={1} />
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+            
+            {/* EOS Cross-Check validation output on combustion panel */}
+            <div className="panel">
+              <div className="panel-header"><div className="panel-title">Thermal Energy Cross-Check</div></div>
+              <div className="panel-body">
+                <DutyComparisonChart results={results} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 10 }}>
+                  <ResultCard label="Q PR-EOS (M6)" value={results.Q_PR} unit="kW" decimals={1} />
+                  <ResultCard label="Q SRK (M4)" value={results.Q_SRK} unit="kW" decimals={1} />
+                  <ResultCard label="Q Lee-Kesler (M7)" value={results.Q_LK} unit="kW" decimals={1} />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
