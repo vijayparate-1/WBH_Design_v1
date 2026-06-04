@@ -38,16 +38,35 @@ export const COMPONENTS = [
     a:[29105,  -1.916,0.004003,-8.7e-7,0.0, 250,1500] },
 ] as const;
 
-// GPSA BIP k_ij matrix (key components — CO2/CH4, H2S/CH4, H2S/CO2 etc.)
-export const GPSA_BIP: Record<string, Record<string, number>> = {
-  'CO2': { 'CH4':0.1, 'C2H6':0.132, 'C3H8':0.142, 'nC4':0.148, 'N2':-0.02, 'H2S':0.12 },
-  'H2S': { 'CH4':0.07, 'C2H6':0.085, 'C3H8':0.089, 'N2':0.17, 'CO2':0.12 },
-  'N2':  { 'CH4':0.025, 'C2H6':0.042, 'CO2':-0.02, 'H2S':0.17 },
-};
+// GPSA BIP k_ij — indexed by component INDEX (0-13) to avoid unicode/ASCII key mismatch
+// Source: GPSA Engineering Data Book §25, Table 25-1; Whitson & Brulé §3
+// Symmetric matrix: kij = kji. Zero = no interaction parameter available.
+// Index: 0=CH4, 1=C2H6, 2=C3H8, 3=iC4, 4=nC4, 5=iC5, 6=nC5, 7=nC6, 8=nC7, 9=N2, 10=CO2, 11=H2S, 12=He, 13=H2
+const GPSA_BIP_IDX: number[][] = [
+//  CH4    C2H6   C3H8   iC4    nC4    iC5    nC5    nC6    nC7    N2     CO2    H2S    He     H2
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0.025, 0.100, 0.070, 0,     0    ], // 0  CH4
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0.042, 0.132, 0.085, 0,     0    ], // 1  C2H6
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0.142, 0.089, 0,     0    ], // 2  C3H8
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0    ], // 3  iC4
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0.148, 0,     0,     0    ], // 4  nC4
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0    ], // 5  iC5
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0    ], // 6  nC5
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0    ], // 7  nC6
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0    ], // 8  nC7
+  [ 0.025, 0.042, 0,     0,     0,     0,     0,     0,     0,     0,    -0.020, 0.170, 0,     0    ], // 9  N2
+  [ 0.100, 0.132, 0.142, 0,     0.148, 0,     0,     0,     0,    -0.020, 0,     0.120, 0,     0   ], // 10 CO2
+  [ 0.070, 0.085, 0.089, 0,     0,     0,     0,     0,     0,     0.170, 0.120, 0,     0,     0   ], // 11 H2S
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0    ], // 12 He
+  [ 0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0,     0    ], // 13 H2
+];
 
-export function getBIP(si: string, sj: string): number {
-  if (si === sj) return 0;
-  return GPSA_BIP[si]?.[sj] ?? GPSA_BIP[sj]?.[si] ?? 0;
+export function getBIP(i: number, j: number): number {
+  if (i === j) return 0;
+  if (i < GPSA_BIP_IDX.length && j < GPSA_BIP_IDX[i].length && GPSA_BIP_IDX[i][j] !== 0)
+    return GPSA_BIP_IDX[i][j];
+  if (j < GPSA_BIP_IDX.length && i < GPSA_BIP_IDX[j].length && GPSA_BIP_IDX[j][i] !== 0)
+    return GPSA_BIP_IDX[j][i];
+  return 0;
 }
 
 // ─── PR-EOS CORE ──────────────────────────────────────────────────────────────
@@ -78,12 +97,16 @@ export interface GasStatePoint {
   rho_ideal: number;
 }
 
-// Ideal-gas Cp at T [K], returns J/(mol·K)
+// Ideal-gas Cp at T [K]
+// Returns J/(kmol·K) — coefficients are DIPPR 100/200 simple polynomial form scaled to kmol
+// Source: DIPPR Project 801; Smith Van Ness Abbott App.B
+// Division by MW_mix*1000 in calcMixCp0 converts correctly to kJ/(kg·K)
+// Verified: CH4 at 300K → A+B*300+... = 35,500 J/(kmol·K) = 35.5 J/(mol·K) = 2.21 kJ/(kg·K) ✓
 export function calcCp0(compIdx: number, T_K: number): number {
   const c = COMPONENTS[compIdx];
-  if (!c) return 35;
+  if (!c) return 35000; // fallback in J/(kmol·K)
   const [A, B, C, D, E] = c.a;
-  return A + B * T_K + C * T_K ** 2 + D * T_K ** 3 + E * T_K ** 4;
+  return A + B * T_K + C * T_K ** 2 + D * T_K ** 3 + E * T_K ** 4; // J/(kmol·K)
 }
 
 // Mixture Cp0 [kJ/(kg·K)]
@@ -125,7 +148,7 @@ export function prEOS_Z(T_K: number, P_bar: number, composition: number[]): numb
   y.forEach((yi, i) => {
     b_m += yi * bi[i];
     y.forEach((yj, j) => {
-      const kij = getBIP(COMPONENTS[i].sym, COMPONENTS[j].sym);
+      const kij = getBIP(i, j);  // index-based — fixes unicode/ASCII mismatch
       a_m += yi * yj * Math.sqrt(ai[i] * ai[j]) * (1 - kij);
     });
   });
@@ -197,8 +220,14 @@ export function calcStatePoint(
   // Cv
   const Cv_kgK = Cp5_kgK - R_GAS / (MW_mix / 1000);
 
-  // Transport: Lee-Kesler / Stiel-Thodos approximations
-  const mu = calcViscosity(T_K, rho, MW_mix);
+  // Transport: Stiel-Thodos + Lucas — use mixture pseudo-critical (Expert fix C)
+  // Pseudo-critical computed here for consistency; also available from Stage1 outputs
+  const Tc_pc_local = composition.reduce((s, yi, i) => s + yi * COMPONENTS[i].Tc, 0);
+  const Pc_pc_local = composition.reduce((s, yi, i) => s + yi * COMPONENTS[i].Pc, 0);
+  // Pseudo-Zc from Lee-Kesler (1975): Zc = 0.2901 - 0.0990·ω_m
+  const omega_m = composition.reduce((s, yi, i) => s + yi * COMPONENTS[i].omega, 0);
+  const Zc_pc_local = Math.max(0.23, 0.2901 - 0.0990 * omega_m);
+  const mu = calcViscosity(T_K, rho, MW_mix, Tc_pc_local, Pc_pc_local, Zc_pc_local);
   const k = calcThermalConductivity(T_K, MW_mix, Cp5_kgK, mu);
   const Pr = mu * Cp5_kgK * 1000 / k;
 
@@ -242,17 +271,70 @@ function calcCpM3(T_C: number, P_kPa: number, y: number[], MW: number): number {
   return Math.max(T_K * (s2 - s1) / (2 * dT), 0.5);
 }
 
+// ── Genuine SRK EOS parameters (Soave 1972) ─────────────────────────────────
+// Ω_a = 0.42748, Ω_b = 0.08664 (different from PR's 0.45724 / 0.07780)
+// κ_SRK = 0.480 + 1.574ω − 0.176ω²  (Soave 1972, Chem.Eng.Sci. 27:1197)
+// α_SRK(T) = [1 + κ(1 − √Tr)]²  (same functional form as PR)
+// SRK integral: ∫dV/(V(V+b)) = ln(V/(V+b)) / b → I_SRK = ln((V+b)/V) / b
+// H_dep_SRK = RT(Z−1) + (T·daadT_SRK − aa_SRK)/b · ln(V/(V+b))
+function srkAaParam(T_K: number, y: number[]): number {
+  const ai_srk = y.map((_, i) => {
+    const c = COMPONENTS[i];
+    const kappa_srk = 0.480 + 1.574 * c.omega - 0.176 * c.omega ** 2;
+    const Tr = T_K / c.Tc;
+    const alpha_srk = (1 + kappa_srk * (1 - Math.sqrt(Tr))) ** 2;
+    return 0.42748 * R_GAS ** 2 * c.Tc ** 2 / (c.Pc * 1e5) * alpha_srk;
+  });
+  let aa = 0;
+  y.forEach((yi, i) => y.forEach((yj, j) => {
+    const kij = getBIP(i, j);
+    aa += yi * yj * Math.sqrt(ai_srk[i] * ai_srk[j]) * (1 - kij);
+  }));
+  return aa;
+}
+function srkBParam(y: number[]): number {
+  return y.reduce((sum, yi, i) =>
+    sum + yi * 0.08664 * R_GAS * COMPONENTS[i].Tc / (COMPONENTS[i].Pc * 1e5), 0);
+}
+function srkDaadT(T_K: number, y: number[]): number {
+  const dT = 0.5;
+  return (srkAaParam(T_K + dT, y) - srkAaParam(T_K - dT, y)) / (2 * dT);
+}
+function srkD2aadT2(T_K: number, y: number[]): number {
+  const dT = 0.5;
+  return (srkAaParam(T_K + dT, y) - 2 * srkAaParam(T_K, y) + srkAaParam(T_K - dT, y)) / dT ** 2;
+}
+
 function calcCpM4(T_K: number, P_bar: number, y: number[], MW: number, Cp0: number): number {
-  // SRK EOS — simplified
-  const b = mixBParam(y) * 0.95;
-  const d2aadT2 = mixD2aadT2(T_K, y) * 1.05; // SRK approximation
-  const Z = prEOS_Z(T_K, P_bar, y);
-  const V = Z * R_GAS * T_K / (P_bar * 1e5);
-  const I_SRK = Math.log((V + b) / V) / b;
-  const Cv_dep = -T_K * d2aadT2 * I_SRK;
-  const Cv0 = Cp0 * MW / 1000 - R_GAS;
-  const Cp_real = Cv0 + Cv_dep + R_GAS * 1.05;
-  return Math.max(Cp_real / (MW / 1000) / 1000, 0.5);
+  // Genuine SRK Cp via enthalpy departure numerical derivative
+  // Reference: Soave (1972) Chem.Eng.Sci. 27:1197; Smith, Van Ness & Abbott §3.6
+  const dT = 0.5;
+  const P_kPa = P_bar * 100;
+  const h1 = calcEnthalpySRK(T_K - dT, P_kPa, y, MW);
+  const h2 = calcEnthalpySRK(T_K + dT, P_kPa, y, MW);
+  return Math.max((h2 - h1) / (2 * dT), 0.5);
+}
+
+function calcEnthalpySRK(T_K: number, P_kPa: number, y: number[], MW: number): number {
+  const P_bar = P_kPa / 100;
+  const b = srkBParam(y);
+  const aa = srkAaParam(T_K, y);
+  const daadT = srkDaadT(T_K, y);
+
+  // SRK cubic Z: Z³ - Z² + (A-B-B²)Z - AB = 0
+  // where A = aa·P/(RT)², B = b·P/(RT)
+  const P_Pa = P_bar * 1e5;
+  const A_srk = aa * P_Pa / (R_GAS * T_K) ** 2;
+  const B_srk = b * P_Pa / (R_GAS * T_K);
+  const roots = solveCubic(-(1), A_srk - B_srk - B_srk ** 2, -A_srk * B_srk);
+  const vapRoots = roots.filter(z => z > B_srk);
+  const Z_srk = vapRoots.length > 0 ? Math.max(...vapRoots) : Math.max(...roots);
+
+  const V = Z_srk * R_GAS * T_K / P_Pa;
+  // SRK enthalpy departure: H-H_ig = RT(Z-1) + (T·daadT - aa)/b · ln(V/(V+b))
+  const H_dep = (P_Pa * V - R_GAS * T_K) + (T_K * daadT - aa) / b * Math.log(V / (V + b));
+  const H0 = calcMixCp0(y, T_K, MW) * MW;
+  return (H0 + H_dep / (MW / 1000)) / 1000;
 }
 
 function calcCpM6(T_C: number, P_kPa: number, y: number[], MW: number): number {
@@ -274,8 +356,11 @@ function calcEnthalpy(T_C: number, P_kPa: number, y: number[], MW: number): numb
   const P_Pa = P_bar * 1e5;
   const V = Z * R_GAS * T_K / P_Pa;
   const H0 = calcMixCp0(y, T_K, MW) * MW; // J/mol relative to 0
-  const H_dep = (P_Pa * V - R_GAS * T_K) + (aa - T_K * daadT) / (2 * Math.SQRT2 * b) *
-    Math.log((V + b * (1 - Math.SQRT2)) / (V + b * (1 + Math.SQRT2)));
+  // PR-EOS enthalpy departure — Poling, Prausnitz & O'Connell 5th Ed §6-7
+  // H - H_ig = RT(Z-1) + (T·daadT - aa)/(2√2·b) · ln[(V+b(1+√2))/(V+b(1-√2))]
+  // Note: (T·daadT - aa) has daadT first (negative for normal T range, making H_dep < 0 = correct)
+  const H_dep = (P_Pa * V - R_GAS * T_K) + (T_K * daadT - aa) / (2 * Math.SQRT2 * b) *
+    Math.log((V + b * (1 + Math.SQRT2)) / (V + b * (1 - Math.SQRT2)));
   return (H0 + H_dep / (MW / 1000)) / 1000; // kJ/kg
 }
 
@@ -291,9 +376,11 @@ function calcEntropy(T_C: number, P_kPa: number, y: number[], MW: number): numbe
   const daadT = mixDaadT(T_K, y);
   const P_Pa = P_bar * 1e5;
   const V = Z * R_GAS * T_K / P_Pa;
+  // PR-EOS entropy departure — Poling, Prausnitz & O'Connell 5th Ed §6-7
+  // S - S_ig = R·ln(Z - B) - daadT/(2√2·b) · ln[(V+b(1+√2))/(V+b(1-√2))]
   const S_dep = R_GAS * Math.log(Z - P_Pa * b / (R_GAS * T_K)) -
     daadT / (2 * Math.SQRT2 * b) *
-    Math.log((V + b * (1 - Math.SQRT2)) / (V + b * (1 + Math.SQRT2)));
+    Math.log((V + b * (1 + Math.SQRT2)) / (V + b * (1 - Math.SQRT2)));
   return (S_dep / (MW / 1000)) / 1000; // kJ/(kg·K)
 }
 
@@ -317,7 +404,7 @@ function mixAaParam(T_K: number, y: number[]): number {
   });
   let aa = 0;
   y.forEach((yi, i) => y.forEach((yj, j) => {
-    const kij = getBIP(COMPONENTS[i].sym, COMPONENTS[j].sym);
+    const kij = getBIP(i, j);  // index-based BIP lookup — fixes unicode key mismatch
     aa += yi * yj * Math.sqrt(ai[i] * ai[j]) * (1 - kij);
   }));
   return aa;
@@ -335,18 +422,28 @@ function mixD2aadT2(T_K: number, y: number[]): number {
 
 // ─── TRANSPORT PROPERTIES ────────────────────────────────────────────────────
 
-export function calcViscosity(T_K: number, rho_kgm3: number, MW: number): number {
-  // Stiel-Thodos correlation for natural gas
-  const Tc = 190.56, Pc = 45.99, Zc = 0.288;
-  const Tr = T_K / Tc;
-  let mu0;
+// calcViscosity: Stiel-Thodos low-pressure + Lucas high-pressure correction
+// Requires mixture pseudo-critical Tc_pc, Pc_pc from Kay's rule (Expert fix C)
+// Reference: Poling, Prausnitz & O'Connell §9-4; Lucas (1981)
+export function calcViscosity(
+  T_K: number, rho_kgm3: number, MW: number,
+  Tc_pc: number = 190.56,   // K  — pass from Stage1 Kay's rule
+  Pc_pc: number = 45.99,    // bar — pass from Stage1 Kay's rule
+  Zc_pc: number = 0.288     // mixture pseudo-Zc (Lee-Kesler: 0.2901 - 0.0990·ω_m)
+): number {
+  const Tr = T_K / Tc_pc;
+  // Stiel-Thodos low-pressure viscosity [Pa·s]
+  // Reference: Stiel & Thodos (1961), AIChE J. 7(4):611
+  let mu0: number;
   if (Tr < 1.5) {
     mu0 = 34e-5 * Tr ** 0.94 / (MW / 1000) ** 0.5;
   } else {
     mu0 = 17.78e-5 * (4.58 * Tr - 1.67) ** 0.625 / (MW / 1000) ** 0.5;
   }
-  // High-pressure correction (Lucas)
-  const rho_r = rho_kgm3 / (MW / 1000 * Pc * 1e5 / (R_GAS * Tc * Zc) / 1000);
+  // Lucas high-pressure correction
+  // rho_c = Pc·M / (R·Tc·Zc) in kg/m³
+  const rho_c = (Pc_pc * 1e5) * (MW / 1000) / (R_GAS * Tc_pc * Zc_pc);
+  const rho_r = rho_kgm3 / rho_c;
   const delta_mu = 1.023e-7 * (Math.exp(1.439 * rho_r) - Math.exp(-1.111 * rho_r ** 1.858));
   return Math.max(mu0 + delta_mu, 5e-6);
 }
