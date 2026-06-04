@@ -17,7 +17,7 @@ export const PIPE_TABLE: PipeData[] = [
   { dn:300, od:323.9, schedules:[{name:'Sch10',wt:4.57},{name:'Sch20',wt:6.35},{name:'Sch40',wt:9.53},{name:'Sch80',wt:12.70}], defaultWT:6.35 },
   { dn:350, od:355.6, schedules:[{name:'Sch10',wt:4.78},{name:'Sch20',wt:7.92},{name:'Sch40',wt:9.53}], defaultWT:7.92 },
   { dn:400, od:406.4, schedules:[{name:'Sch10',wt:4.78},{name:'Sch20',wt:7.92},{name:'Sch40',wt:9.53}], defaultWT:7.92 },
-  { dn:450, od:457.2, schedules:[{name:'Sch10',wt:4.78},{name(--Sch20,wt:7.92},{name:'Sch40',wt:9.53}], defaultWT:7.92 },
+  { dn:450, od:457.2, schedules:[{name:'Sch10',wt:4.78},{name:'Sch20',wt:7.92},{name:'Sch40',wt:9.53}], defaultWT:7.92 },
   { dn:500, od:508.0, schedules:[{name:'Sch10',wt:5.54},{name:'Sch20',wt:9.53}], defaultWT:9.53 },
   { dn:600, od:609.6, schedules:[{name:'Sch10',wt:6.35},{name:'Sch20',wt:9.53}], defaultWT:9.53 },
   { dn:700, od:711.2, schedules:[{name:'Sch10',wt:7.92},{name:'Sch20',wt:12.70}], defaultWT:12.70 },
