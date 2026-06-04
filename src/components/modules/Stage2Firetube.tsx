@@ -12,6 +12,7 @@ import type { Stage1Results } from '@/lib/calculations/thermodynamics';
 // ANSI/ASME B36.10M Standard Industrial Matrix for Combustion Tubes (Sch 10 / Sch 20)
 // Wall thicknesses minimized to optimize overall heat transfer coefficient (U) while maintaining mechanical hoop stability
 const INTERNAL_PIPE_TABLE = [
+  { dn: 150, od: 168.3, thickness: 3.40, label: 'DN150 (6") Sch 10' },
   { dn: 200, od: 219.1, thickness: 4.78, label: 'DN200 (8") Sch 10' },
   { dn: 250, od: 273.1, thickness: 4.78, label: 'DN250 (10") Sch 10' },
   { dn: 300, od: 323.9, thickness: 4.78, label: 'DN300 (12") Sch 10' },
