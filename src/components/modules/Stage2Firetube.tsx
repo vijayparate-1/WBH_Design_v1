@@ -289,12 +289,13 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
                   <ResultCard label="Q Gross Input" value={results.Q_gross_kW} unit="kW" decimals={1} />
                   <ResultCard label="Q Rated Nameplate" value={results.Q_burner_rated_kW} unit="kW" decimals={1} />
                 </ResultGrid>
-                <ResultGrid cols={2} style={{ marginTop: 8 }}>
-                  <ResultCard label="Active Burners Count" value={results.nBurners} />
-                  <ResultCard label="Stream Load per Burner" value={results.Q_per_burner_kW} unit="kW" decimals={1} />
+                <div style={{ marginTop: 8 }}>
+                <ResultGrid cols={2}>
+                <ResultCard label="Active Burners Count" value={results.nBurners} />
+              <ResultCard label="Stream Load per Burner" value={results.Q_per_burner_kW} unit="kW" decimals={1} />
                 </ResultGrid>
+                    </div>        
               </div>
-            </div>
 
             <div className="panel" style={{ marginBottom: 12 }}>
               <div className="panel-header"><div className="panel-title">WBH Vessel & Area Boundaries</div></div>
