@@ -107,7 +107,7 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
         nPass: parseInt(form.nPass),
         tubeLengthM: parseFloat(form.tubeLen),
         pipeDN: form.pipeDN,
-        tubeODMm: selectedTube?.od ?? 406.4, // Explicit outside diameter map
+        tubeODMm: selectedTube?.od ?? 406.4,
         tubeWallMm: selectedTube?.thickness ?? 6.35,
         T_bath_C: parseFloat(form.Tbath),
         T_amb_C: parseFloat(form.stackTamb),
@@ -289,13 +289,15 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
                   <ResultCard label="Q Gross Input" value={results.Q_gross_kW} unit="kW" decimals={1} />
                   <ResultCard label="Q Rated Nameplate" value={results.Q_burner_rated_kW} unit="kW" decimals={1} />
                 </ResultGrid>
+                
                 <div style={{ marginTop: 8 }}>
-                <ResultGrid cols={2}>
-                <ResultCard label="Active Burners Count" value={results.nBurners} />
-              <ResultCard label="Stream Load per Burner" value={results.Q_per_burner_kW} unit="kW" decimals={1} />
-                </ResultGrid>
-                    </div>        
+                  <ResultGrid cols={2}>
+                    <ResultCard label="Active Burners Count" value={results.nBurners} />
+                    <ResultCard label="Stream Load per Burner" value={results.Q_per_burner_kW} unit="kW" decimals={1} />
+                  </ResultGrid>
+                </div>
               </div>
+            </div>
 
             <div className="panel" style={{ marginBottom: 12 }}>
               <div className="panel-header"><div className="panel-title">WBH Vessel & Area Boundaries</div></div>
@@ -322,8 +324,8 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
                 </ResultGrid>
                 <div className={`alert ${results.fluxOK ? 'alert-ok' : 'alert-fail'}`} style={{ marginTop: 8 }}>
                   {results.fluxOK
-                    ? `✔ Engineering Check Passed: Heat flux (${f1(results.heatFlux_kWm2)} kW/m²) complies with the API 12K safety ceiling of 37.9 kW/m².`
-                    : `✘ EXCEEDS REGULATORY CEILING: Heat flux (${f1(results.heatFlux_kWm2)} kW/m²) violates API 12K constraints. Expand firetube DN size or leg length immediately to avoid local glycol degradation.`
+                    ? `✔ Engineering Check Passed: Heat flux (${results.heatFlux_kWm2?.toFixed(1)} kW/m²) complies with the API 12K safety ceiling of 37.9 kW/m².`
+                    : `✘ EXCEEDS REGULATORY CEILING: Heat flux (${results.heatFlux_kWm2?.toFixed(1)} kW/m²) violates API 12K constraints. Expand firetube DN size or leg length immediately to avoid local glycol degradation.`
                   }
                 </div>
               </div>
