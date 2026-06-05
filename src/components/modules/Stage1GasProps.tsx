@@ -2,7 +2,7 @@
 // src/components/modules/Stage1GasProps.tsx
 // Stage 1 — PR-EOS Gas Properties (complete rewrite with graphs + all sub-tabs)
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import ValidationPanel from '@/components/ui/ValidationPanel';
 import { ResultCard, ResultGrid } from '@/components/ui/ResultCard';
 import type { Stage1Results, GasStatePoint } from '@/lib/calculations/thermodynamics';
@@ -933,6 +933,14 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
   const f = (v: number | undefined, d = 4) => v !== undefined && isFinite(v) ? v.toFixed(d) : '—';
   const ST = (pt: GasStatePoint | undefined) => pt as unknown as Record<string, number> | undefined;
 
+  // Auto-calculate: 400ms debounce after any form change (composition or conditions)
+  // Skips if composition is invalid (totalOK = false)
+  useEffect(() => {
+    if (!totalOK) return;
+    const t = setTimeout(() => { calculate(); }, 400);
+    return () => clearTimeout(t);
+  }, [form]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Joule-Thomson calc (from results)
   // Combustion flue gas composition (stoichiometric + excess air + humidity)
   const combFlue = results?.heatingValues ? (() => {
@@ -1190,10 +1198,16 @@ export default function Stage1GasProps({ onComplete, initialValues }: Props) {
                 </div>
 
                 <div style={{ marginTop:12, display:'flex', gap:8 }}>
+                  {/* Auto-calc triggers via useEffect below — button retained for manual force */}
                   <button className="btn btn-primary" onClick={calculate}
-                    disabled={loading || !totalOK}>
-                    {loading ? '⏳ Calculating…' : '▶ Calculate Stage 1'}
+                    disabled={loading || !totalOK} style={{ opacity: loading ? 0.6 : 1 }}>
+                    {loading ? '⏳ Calculating…' : '▶ Recalculate'}
                   </button>
+                  {loading && (
+                    <span style={{ fontSize:10, color:'var(--text-dim)', alignSelf:'center' }}>
+                      Auto-updating…
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
