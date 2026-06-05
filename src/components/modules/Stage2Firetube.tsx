@@ -105,6 +105,173 @@ function FiretubeSVG({ nPass, L, od_mm, nBurners }: {
   );
 }
 
+// ── Blower Pressure Gauge — vertical bar showing Available vs Required ──────
+// Shows P_Blower (available from selected blower catalogue) vs
+// system total raw pressure (sum of burner + piping + valves + chamber).
+// The gap = safety margin. Engineer sees immediately if blower is oversized/tight.
+function BlowerPressureGauge({ pAvailable, pRequired, pComponents }:
+  { pAvailable: number; pRequired: number;
+    pComponents: { burner: number; piping: number; valves: number; chamber: number } }) {
+  if (!isFinite(pAvailable) || !isFinite(pRequired) || pAvailable <= 0) return null;
+
+  const W = 260, H = 200, pL = 16, pR = 60, pT = 20, pB = 28;
+  const cH = H - pT - pB;
+  const maxV = Math.max(pAvailable, pRequired) * 1.25;
+
+  // Y coordinate — 0 at bottom, maxV at top
+  const toY = (v: number) => pT + cH - (v / maxV) * cH;
+  const bW  = 40;
+
+  // Stacked required bar segments
+  const segs = [
+    { v: Math.max(0, pComponents.burner),  col: '#1a6ab8', label: 'Burner' },
+    { v: Math.max(0, pComponents.piping),  col: '#7a3a00', label: 'Piping' },
+    { v: Math.max(0, pComponents.valves),  col: '#7a1aa0', label: 'Valves' },
+    { v: Math.max(0, pComponents.chamber), col: '#b04000', label: 'Chamber' },
+  ].filter(s => s.v > 0);
+  const totalReq = segs.reduce((s, seg) => s + seg.v, 0);
+
+  const margin = pAvailable - totalReq;
+  const marginPct = (margin / Math.max(pAvailable, 0.001)) * 100;
+  const safe = margin > 0;
+
+  // Build stacked bar Y positions
+  let stackY = toY(0);
+  const stackSegs = segs.map(seg => {
+    const segH = (seg.v / maxV) * cH;
+    const y = stackY - segH;
+    stackY = y;
+    return { ...seg, y, h: segH };
+  });
+
+  // Y-axis ticks
+  const ticks = 5;
+
+  return (
+    <div style={{ marginBottom:12 }}>
+      <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', letterSpacing:1,
+        color:'var(--text-dim)', marginBottom:4 }}>
+        Blower Pressure Balance ["w.c.]
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', maxWidth:280 }}>
+
+        {/* Y-axis grid */}
+        {Array.from({ length: ticks + 1 }, (_, i) => {
+          const v = (maxV * i) / ticks;
+          const y = toY(v);
+          return (
+            <g key={i}>
+              <line x1={pL} y1={y} x2={W - pR + 4} y2={y}
+                stroke="rgba(180,190,200,0.25)" strokeWidth={0.5} />
+              <text x={pL - 2} y={y + 4} textAnchor="end" fontSize={8}
+                fill="var(--text-dim)" fontFamily="monospace">{v.toFixed(1)}</text>
+            </g>
+          );
+        })}
+
+        {/* Available P bar (left) */}
+        <rect x={pL + 4} y={toY(pAvailable)} width={bW}
+          height={toY(0) - toY(pAvailable)}
+          fill={safe ? 'rgba(14,122,62,0.6)' : 'rgba(192,40,40,0.6)'} rx={3} />
+        <text x={pL + 4 + bW/2} y={toY(pAvailable) - 5} textAnchor="middle"
+          fontSize={9} fill={safe ? 'var(--green)' : 'var(--red)'}
+          fontFamily="monospace" fontWeight={700}>
+          {pAvailable.toFixed(2)}
+        </text>
+        <text x={pL + 4 + bW/2} y={H - 6} textAnchor="middle"
+          fontSize={8} fill={safe ? 'var(--green)' : 'var(--red)'} fontFamily="sans-serif">
+          Available
+        </text>
+
+        {/* Required P bar — stacked segments (right) */}
+        {stackSegs.map((seg, i) => (
+          <g key={i}>
+            <rect x={pL + bW + 20} y={seg.y} width={bW} height={seg.h}
+              fill={seg.col} opacity={0.8} rx={i === 0 ? 3 : 0}
+              style={{ borderBottom: i < stackSegs.length-1 ? '1px solid rgba(255,255,255,0.2)' : undefined }} />
+            {seg.h > 12 && (
+              <text x={pL + bW + 20 + bW/2} y={seg.y + seg.h/2 + 3}
+                textAnchor="middle" fontSize={7} fill="white"
+                fontFamily="monospace" fontWeight={600}>{seg.label}</text>
+            )}
+          </g>
+        ))}
+        <text x={pL + bW + 20 + bW/2} y={toY(totalReq) - 5} textAnchor="middle"
+          fontSize={9} fill="var(--accent)" fontFamily="monospace" fontWeight={700}>
+          {totalReq.toFixed(2)}
+        </text>
+        <text x={pL + bW + 20 + bW/2} y={H - 6} textAnchor="middle"
+          fontSize={8} fill="var(--text-dim)" fontFamily="sans-serif">Required</text>
+
+        {/* Safety margin bracket */}
+        {safe && (
+          <g>
+            <line x1={pL + bW + 4} y1={toY(pAvailable)} x2={pL + bW + 4} y2={toY(totalReq)}
+              stroke="var(--green)" strokeWidth={1.5} />
+            <line x1={pL + bW + 1} y1={toY(pAvailable)} x2={pL + bW + 7} y2={toY(pAvailable)}
+              stroke="var(--green)" strokeWidth={1.5} />
+            <line x1={pL + bW + 1} y1={toY(totalReq)} x2={pL + bW + 7} y2={toY(totalReq)}
+              stroke="var(--green)" strokeWidth={1.5} />
+            <text x={pL + bW + 10} y={(toY(pAvailable) + toY(totalReq))/2 + 3}
+              fontSize={8} fill="var(--green)" fontFamily="monospace" fontWeight={700}>
+              +{marginPct.toFixed(0)}%
+            </text>
+          </g>
+        )}
+        {!safe && (
+          <text x={pL + bW + 10} y={(toY(pAvailable) + toY(totalReq))/2 + 3}
+            fontSize={8} fill="var(--red)" fontFamily="monospace" fontWeight={700}>
+            DEFICIT
+          </text>
+        )}
+
+        {/* Status badge */}
+        <rect x={pL} y={pT - 18} width={W - pL - pR + 4} height={14}
+          fill={safe ? 'rgba(14,122,62,0.12)' : 'rgba(192,40,40,0.12)'} rx={3} />
+        <text x={(W - pR + pL + 4)/2 + pL/2} y={pT - 8} textAnchor="middle"
+          fontSize={9} fill={safe ? 'var(--green)' : 'var(--red)'}
+          fontFamily="monospace" fontWeight={700}>
+          {safe ? `✔ ${marginPct.toFixed(1)}% safety margin` : `✘ BLOWER UNDERSIZED`}
+        </text>
+      </svg>
+
+      {/* Numeric summary below */}
+      <table style={{ width:'100%', fontSize:10, marginTop:4, borderCollapse:'collapse',
+        fontFamily:'var(--mono)' }}>
+        <tbody>
+          <tr>
+            <td style={{ color:'var(--text-dim)', paddingRight:8 }}>P_Blower available</td>
+            <td style={{ color: safe ? 'var(--green)' : 'var(--red)', fontWeight:700, textAlign:'right' }}>
+              {pAvailable.toFixed(3)}"w.c.
+            </td>
+            <td style={{ color:'var(--text-dim)', paddingLeft:8 }}>
+              = {(pAvailable * 2.4908).toFixed(1)} mbar
+            </td>
+          </tr>
+          <tr>
+            <td style={{ color:'var(--text-dim)' }}>System total required</td>
+            <td style={{ color:'var(--accent)', fontWeight:700, textAlign:'right' }}>
+              {totalReq.toFixed(3)}"w.c.
+            </td>
+            <td style={{ color:'var(--text-dim)', paddingLeft:8 }}>
+              = {(totalReq * 2.4908).toFixed(1)} mbar
+            </td>
+          </tr>
+          <tr style={{ borderTop:'1px solid var(--border)' }}>
+            <td style={{ color:'var(--text-dim)' }}>Margin (×1.10 factor incl.)</td>
+            <td style={{ color: safe ? 'var(--green)' : 'var(--red)', fontWeight:700, textAlign:'right' }}>
+              {margin >= 0 ? '+' : ''}{margin.toFixed(3)}"w.c.
+            </td>
+            <td style={{ color: safe ? 'var(--green)' : 'var(--red)', paddingLeft:8 }}>
+              {safe ? '✔ OK' : '✘ DEFICIT'}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── Draft bar chart ──────────────────────────────────────────────────────────
 function DraftBar({ available, required }: { available: number; required: number }) {
   if (!isFinite(available) || !isFinite(required) || available <= 0) return null;
@@ -893,6 +1060,20 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
                             color:'var(--accent)' }}>
                             {blResult.recommendedMotor_kW} kW
                           </div>
+                        </div>
+
+                        {/* Blower pressure gauge */}
+                        <div style={{ marginTop:14 }}>
+                          <BlowerPressureGauge
+                            pAvailable={blResult.pBlower_inWC}
+                            pRequired={blResult.pTotalRaw_inWC}
+                            pComponents={{
+                              burner:  blResult.pBurner_inWC,
+                              piping:  blResult.pPiping_inWC,
+                              valves:  blResult.pValves_inWC,
+                              chamber: Math.max(0, blResult.pChamber_inWC),
+                            }}
+                          />
                         </div>
                       </div>
                     </div>

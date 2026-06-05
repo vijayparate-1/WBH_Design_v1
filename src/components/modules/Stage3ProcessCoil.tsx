@@ -529,9 +529,27 @@ export default function Stage3ProcessCoil({ s1Results, s2Results, onComplete }: 
                     </tr>
                     <tr>
                       <td>Leg length</td>
-                      <td className="val">{f2(results.L_leg)}</td>
-                      <td>m {results.lenFixed ? '(fixed)' : '(calculated)'}</td>
+                      <td className="val" style={{ color: results.nodalShortfallFlag ? 'var(--red)' : undefined }}>
+                        {f2(results.L_leg)}
+                      </td>
+                      <td>m {results.lenFixed ? '(fixed ⚠)' : '(calculated)'}</td>
                     </tr>
+                    {results.lenFixed && results.nodalFinalT !== undefined && (
+                      <tr style={{ background:'rgba(192,40,40,0.05)' }}>
+                        <td>Nodal terminal T (actual)</td>
+                        <td className="val" style={{
+                          color: results.nodalShortfallFlag ? 'var(--red)' : 'var(--green)',
+                          fontWeight: 700
+                        }}>
+                          {results.nodalFinalT.toFixed(1)}°C
+                        </td>
+                        <td style={{ fontSize:10 }}>
+                          {results.nodalShortfallFlag
+                            ? `✘ ${results.nodalThermalShortfall?.toFixed(2)}°C short of ${form.T_out}°C target`
+                            : `✔ target met`}
+                        </td>
+                      </tr>
+                    )}
                     <tr>
                       <td>Bends per path</td>
                       <td className="val">{results.n_bends_path ?? '—'}</td><td></td>
@@ -540,6 +558,23 @@ export default function Stage3ProcessCoil({ s1Results, s2Results, onComplete }: 
                 </table>
               </div>
             </div>
+
+            {/* ── Fixed-leg shortfall warning ─────────────────────────────────── */}
+            {results.nodalShortfallFlag && (
+              <div className="alert alert-fail" style={{ marginBottom:12 }}>
+                <strong>⚠ Fixed Leg Length — Thermal Shortfall Detected</strong><br/>
+                The forced leg length ({f2(results.L_leg)} m) is thermally insufficient for the
+                specified duty. Nodal integration achieves only{' '}
+                <strong>{results.nodalFinalT?.toFixed(1) ?? '—'}°C</strong>{' '}
+                vs target {parseFloat(form.T_out).toFixed(1)}°C
+                (shortfall: <strong>{results.nodalThermalShortfall?.toFixed(2) ?? '—'}°C</strong>).
+                <br/>
+                The outlet temperature displayed in the results panel reflects your <em>input target</em>,
+                not the thermally achievable value for this coil configuration.
+                To resolve: increase leg length, add more rows/paths, or clear the fixed-length constraint
+                to allow auto-sizing.
+              </div>
+            )}
 
             <div className="panel">
               <div className="panel-header"><div className="panel-title">ASME B31.3 Mechanical</div></div>
