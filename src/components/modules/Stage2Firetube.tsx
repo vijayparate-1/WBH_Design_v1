@@ -230,8 +230,13 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
     }
   }, [s1Results]);
 
-  const setF = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm(f => ({ ...f, [k]: e.target.value }));
+  const setF = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const val = e.target.value;
+    setForm(f => ({ ...f, [k]: val }));
+    // Auto-switch to blower tab when forced draft selected
+    if (k === 'draftType' && val === 'forced') setActiveTab('blower');
+    if (k === 'draftType' && val === 'natural') setActiveTab('firetube');
+  };
   const setBF = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setBForm(f => ({ ...f, [k]: e.target.value }));
 
@@ -336,9 +341,13 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
           ① Firetube & Stack
           {ftLoading && <span style={{ marginLeft:6, fontSize:9, color:'var(--text-dim)' }}>⏳</span>}
         </button>
-        <button className={`tab-btn${activeTab === 'blower' ? ' active' : ''}`}
-          onClick={() => setActiveTab('blower')}>
+        <button
+          className={`tab-btn${activeTab === 'blower' ? ' active' : ''}`}
+          onClick={() => form.draftType === 'forced' ? setActiveTab('blower') : undefined}
+          style={{ opacity: form.draftType === 'forced' ? 1 : 0.45, cursor: form.draftType === 'forced' ? 'pointer' : 'not-allowed' }}
+          title={form.draftType !== 'forced' ? 'Select "Forced Draft" in Tab ① to enable blower sizing' : undefined}>
           ② Forced Draft Blower & Burner
+          {form.draftType !== 'forced' && <span style={{ fontSize:9, marginLeft:4, color:'var(--text-dim)' }}>🔒</span>}
         </button>
       </div>
 
@@ -477,14 +486,22 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
             <div className="panel">
               <div className="panel-header"><div className="panel-title">Stack (AS 3814 / API 12K)</div></div>
               <div className="panel-body">
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+                {form.draftType === 'forced' && (
+                <div className="alert alert-info" style={{ marginBottom:10 }}>
+                  ℹ Forced Draft selected — natural stack sizing not required.
+                  Set altitude and ambient temp for blower calculations in Tab ②.
+                </div>
+              )}
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
                   {[
                     { label:'Site Altitude',      k:'stackAlt',    unit:'m ASL' },
                     { label:'Ambient Temp',        k:'stackTamb',   unit:'°C' },
                     { label:'Flue Gas Temp',       k:'stackTflue',  unit:'°C' },
                     { label:'Excess Air',          k:'excessAir',   unit:'%' },
-                    { label:'Stack Height',        k:'stackHeight', unit:'m' },
-                    { label:'Stack Dia (internal)',k:'stackDia',    unit:'mm' },
+                    ...(form.draftType === 'natural' ? [
+                      { label:'Stack Height', k:'stackHeight', unit:'m' },
+                      { label:'Stack Dia (internal)', k:'stackDia', unit:'mm' },
+                    ] : []),
                   ].map(fi => (
                     <div key={fi.k}>
                       <label className="field-label">{fi.label}</label>
@@ -638,7 +655,20 @@ export default function Stage2Firetube({ s1Results, onComplete }: Props) {
       {/* ══════════════════════════════════════════════════════════════════
           TAB ②: FORCED DRAFT BLOWER & BURNER
          ══════════════════════════════════════════════════════════════════ */}
-      {activeTab === 'blower' && (
+      {activeTab === 'blower' && form.draftType !== 'forced' && (
+        <div className="panel">
+          <div className="panel-body" style={{ padding:40, textAlign:'center' }}>
+            <div style={{ fontSize:32, marginBottom:12 }}>🔒</div>
+            <div style={{ fontSize:14, fontWeight:700, color:'var(--text-dim)', marginBottom:8 }}>
+              Forced Draft Blower Sizing
+            </div>
+            <div style={{ fontSize:12, color:'var(--text-dim)' }}>
+              Switch Draft Type to <strong>Forced Draft</strong> in Tab ① to enable blower and burner sizing.
+            </div>
+          </div>
+        </div>
+      )}
+      {activeTab === 'blower' && form.draftType === 'forced' && (
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
           {/* LEFT — inputs */}
           <div>

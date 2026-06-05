@@ -63,9 +63,25 @@ const FIRETUBE_WALL: Record<number, Record<string, number>> = {
 
 const COIL_COLORS = ['#e74c3c','#e67e22','#f1c40f','#2ecc71','#1abc9c','#3498db','#9b59b6','#e91e63','#00bcd4','#8bc34a'];
 
+export interface SketcherResults {
+  shellOD_mm: number;        // confirmed geometric shell OD (governs all downstream)
+  shellID_mm: number;        // ID required
+  vijayOD_mm: number;        // Vijay formula result
+  coilNPS: string;           // NPS label
+  coilOD_mm: number;
+  coilWall_mm: number;
+  nPipes: number;            // total coil pipes in cross-section
+  fireOD_mm: number;
+  firePasses: number;
+  nBurners: number;
+  pitch_mm: number;
+  bendType: string;
+}
+
 interface Props {
   s2Results?: Stage2Results;
   s3Results?: Stage3Results;
+  onComplete?: (r: SketcherResults) => void;
 }
 
 interface BurnerSystem {
@@ -106,7 +122,7 @@ function fireNbFromOD(od_mm: number): number {
   return best;
 }
 
-export default function ShellSketcherTab({ s2Results, s3Results }: Props) {
+export default function ShellSketcherTab({ s2Results, s3Results, onComplete }: Props) {
   // ── Auto-populate from Stage 2 & 3 ─────────────────────────────────────
   // Coil: from Stage 3 (pipe OD, wall thickness, nPaths=pipes/row, nRows)
   const initCoilNb = s3Results ? npsFromOD(s3Results.do_m * 1000) : 30;
@@ -138,6 +154,10 @@ export default function ShellSketcherTab({ s2Results, s3Results }: Props) {
   const [clearD, setClearD] = useState(150);
 
   const [coilCenter, setCoilCenter] = useState({x:0, y:-90});
+
+  // Notify parent whenever the confirmed shell OD changes
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   const [burners, setBurners] = useState<BurnerSystem[]>([
     {p1:{x:-120,y:120}, p2Angle:150, p3Angle:60, p4Angle:-30},
     {p1:{x:120,y:120},  p2Angle:30,  p3Angle:120, p4Angle:210},
@@ -149,6 +169,10 @@ export default function ShellSketcherTab({ s2Results, s3Results }: Props) {
   const cx = SVG_W/2, cy = SVG_H/2;
 
   // Sync button
+  // Emit results whenever geometry changes (after render — values computed inline below)
+  // We call this from the render computation area using a ref trick
+  const lastOD = React.useRef(0);
+
   const syncFromDesign = () => {
     if (s3Results) {
       const nb = npsFromOD(s3Results.do_m * 1000);
@@ -237,6 +261,26 @@ export default function ShellSketcherTab({ s2Results, s3Results }: Props) {
   };
 
   const coilPoints = getCoilPoints();
+  // Emit confirmed shell OD to parent — only when it changes
+  React.useEffect(() => {
+    if (onComplete && suggestedOD !== lastOD.current) {
+      lastOD.current = suggestedOD;
+      onComplete({
+        shellOD_mm:  suggestedOD,
+        shellID_mm:  Math.round(idRequired),
+        vijayOD_mm:  calcShellOD,
+        coilNPS:     NPS_LABELS[coilNb] ?? String(coilNb),
+        coilOD_mm:   odCoil,
+        coilWall_mm: wallCoil,
+        nPipes:      coilPoints.length,
+        fireOD_mm:   odFire,
+        firePasses,
+        nBurners:    burnerQty,
+        pitch_mm:    pitch,
+        bendType,
+      });
+    }
+  }); // intentionally no dep array — runs on every render when suggestedOD changes
   const firePoints = getFirePoints();
   const allPts = [...coilPoints, ...firePoints.map(p=>({x:p.x,y:p.y,r:p.r}))];
   let maxExtent = 0;

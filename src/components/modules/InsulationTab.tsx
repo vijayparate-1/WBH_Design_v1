@@ -9,6 +9,7 @@ import type { Stage2Results } from '@/lib/calculations/heater-sizing';
 interface Props {
   s1Results?: Stage1Results;
   s2Results?: Stage2Results;
+  shellOD_mm?: number;  // confirmed OD from Shell Sketcher (overrides s2 estimate)
 }
 
 const INS_MATERIALS = [
@@ -18,7 +19,7 @@ const INS_MATERIALS = [
   { id:'pir',        label:'PIR Foam (cold insulation) — k=0.024', k:0.024, maxT:120 },
 ];
 
-export default function InsulationTab({ s1Results, s2Results }: Props) {
+export default function InsulationTab({ s1Results, s2Results, shellOD_mm }: Props) {
   const [form, setForm] = useState({
     thickness:'75', material:'ceramic_96', cladding:'aluzinc',
     windSpeed:'3', T_amb:'25', T_process:'75',
@@ -31,7 +32,7 @@ export default function InsulationTab({ s1Results, s2Results }: Props) {
     if (!s2Results) return;
     setForm(f => ({
       ...f,
-      D_shell: (s2Results.OD_shell_mm / 1000).toFixed(3),
+      D_shell: ((shellOD_mm ?? s2Results?.OD_shell_mm ?? 2000) / 1000).toFixed(3),
       L_shell: (s2Results.L_shell_mm / 1000).toFixed(3),
       T_process: String(Math.round(Number(75))), // bath temp not directly in S2 results type
     }));
