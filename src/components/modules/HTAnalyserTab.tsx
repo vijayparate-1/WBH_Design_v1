@@ -19,13 +19,38 @@ interface Props {
 // PHYSICS LIBRARY (ported from v28 HTML htCalc* functions)
 // ═══════════════════════════════════════════════════════════════════════
 
+// Unit conversion helpers — explicit to prevent kPa/bar confusion
+// All internal calculations use SI units (Pa, K, m, kg, W)
+/** kPa → barg (gauge bar). Stage 1 returns P in kPa. */
+const kPa_to_barg = (kPa: number): number => kPa / 100 - 1.01325;
+/** barg → kPa */
+const barg_to_kPa = (barg: number): number => (barg + 1.01325) * 100;
+/** barg → MPa (for B31.3 wall thickness formula) */
+const barg_to_MPa = (barg: number): number => barg * 0.1;
+/** kPa → MPa */
+const kPa_to_MPa = (kPa: number): number => kPa / 1000;
+/** Guard: detects if a value is likely kPa when barg is expected (>500 is almost certainly kPa) */
+const guardBarg = (v: number, fieldName: string): number => {
+  if (v > 500) {
+    console.warn(`HTAnalyser: ${fieldName} = ${v} looks like kPa, expected barg. Auto-converting.`);
+    return kPa_to_barg(v);
+  }
+  return v;
+};
+
 // Flue gas properties (simplified combustion gas mix: CO2+H2O+N2+O2)
+// μ uses Sutherland's Law for accuracy at high T (800–1000°C burner exit)
+// Linear extrapolation overestimates μ by ~10% at 900°C — Sutherland is ~4.6e-5 vs ~5.1e-5 Pa·s.
+// Sutherland constants: μ₀=1.716e-5 Pa·s @ T₀=273.15K, S=110.4K (combustion gas N₂-dominant).
+// Reference: Sutherland W. (1893) Phil. Mag. 36:507; White F.M. (2011) §1.7
 function propsFlueGas(T_C: number) {
   const T = Math.max(T_C, 50);
-  const Cp = 1050 + 0.12 * T;              // J/(kg·K)
-  const k  = 0.0245 + 7.2e-5 * T;         // W/(m·K)
-  const mu = 1.46e-5 + 4.0e-8 * T;        // Pa·s
-  const rho = 1.25 * 273.15 / (273.15 + T); // kg/m³
+  const Cp  = 1050 + 0.12 * T;                        // J/(kg·K) — polynomial, valid 50–1100°C
+  const k   = 0.0245 + 7.2e-5 * T;                    // W/(m·K)  — polynomial, valid 50–1000°C
+  const T_K = T + 273.15;
+  const mu0 = 1.716e-5, T0 = 273.15, S = 110.4;       // Sutherland constants
+  const mu  = mu0 * Math.pow(T_K / T0, 1.5) * (T0 + S) / (T_K + S); // Pa·s
+  const rho = 1.25 * 273.15 / (273.15 + T);            // kg/m³ — ideal gas, MW≈29
   return { Cp, k, mu, rho, Pr: mu * Cp / k };
 }
 
@@ -35,13 +60,16 @@ function propsNaturalGas(T_C: number, P_barg: number, synced?: { Cp: number; k: 
     return { ...synced, Pr: synced.mu * synced.Cp / synced.k, source: 'PR-EOS (Stage 1)' };
   }
   const T = Math.max(T_C, 5);
-  const P_abs = (P_barg + 1.01325) * 1e5;
+  // Guard: if P_barg > 500 it's probably kPa — convert silently
+  const P_barg_safe = guardBarg(P_barg, 'P_ng_op');
+  const P_abs = (P_barg_safe + 1.01325) * 1e5;
   const M = 16.04, R = 8314.0;
   const Cp = 2200 + 1.1 * T + 0.002 * T * T;
   const k  = 0.0302 + 8.5e-5 * T;
   const mu = 1.05e-5 + 3.0e-8 * T;
   // Hall-Yarborough Z-factor for lean NG
-  const T_K = 273.15 + T, P_bar = P_abs / 1e5;
+  const T_K = 273.15 + T;
+  const P_bar = P_abs / 1e5;  // absolute bar — correct for H-Y Ppr
   const Tpc = 190.5, Ppc = 45.8;
   const Tpr = T_K / Tpc, Ppr = P_bar / Ppc;
   let Z = 1.0;
@@ -189,10 +217,12 @@ function skinTemps(Q_W: number, A_o: number, D_i: number, D_o: number,
 // B31.3 wall thickness check
 function b313Check(P_barg: number, D_o_mm: number, T_C: number, mat: string, t_sel: number,
   E = 1.0, Y = 0.4, mill = 0.125) {
+  // Ensure barg — guard against accidental kPa input
+  const P_barg_safe = guardBarg(P_barg, 'P_design (B31.3)');
   const S_MAP: Record<string,number> = {
     'A106B':137.9, 'A333G6':137.9, '316L':115.1, 'A312TP316L':115.1 };
   const S = S_MAP[mat.toUpperCase().replace(/[\s-]/g,'')] ?? 137.9;
-  const P_MPa = P_barg * 0.1;
+  const P_MPa = barg_to_MPa(P_barg_safe);
   const tmin  = (P_MPa * D_o_mm) / (2 * (S * E + P_MPa * Y));
   const treq  = tmin / (1 - mill);
   const margin = +(t_sel - treq).toFixed(3);
@@ -324,19 +354,32 @@ function ResistanceBar({ pct_i, pct_w, pct_o, label_i, label_o }:
   );
 }
 
+// Typed node to prevent implicit-any on dynamic index access
+interface TProfileNode { x: number; T_hot: number; T_cold: number; T_wall: number; }
+
 function TProfileSVG({ title, nodes, label_hot, label_cold, color_hot, color_cold }:
-  { title: string; nodes: Array<{x:number; T_hot:number; T_cold:number; T_wall:number}>;
+  { title: string; nodes: TProfileNode[];
     label_hot: string; label_cold: string; color_hot: string; color_cold: string }) {
   if (nodes.length < 2) return null;
   const W = 520, H = 200, pL = 50, pB = 32, pT = 18, pR = 12;
   const cW = W - pL - pR, cH = H - pB - pT;
-  const xs = nodes.map(n => n.x), allT = nodes.flatMap(n => [n.T_hot, n.T_cold, n.T_wall]);
+  const xs = nodes.map((n: TProfileNode) => n.x);
+  const allT = nodes.flatMap((n: TProfileNode) => [n.T_hot, n.T_cold, n.T_wall]);
   const maxX = Math.max(...xs), minX = Math.min(...xs);
   const maxT = Math.max(...allT) + 3, minT = Math.min(...allT) - 3;
   const sx = (x: number) => pL + ((x - minX) / Math.max(maxX - minX, 0.01)) * cW;
   const sy = (T: number) => pT + (1 - (T - minT) / (maxT - minT)) * cH;
-  const path = (key: 'T_hot'|'T_cold'|'T_wall', col: string, dash?: string) => {
-    const d = nodes.map((n,i) => `${i===0?'M':'L'}${sx(n.x).toFixed(1)},${sy(n[key]).toFixed(1)}`).join(' ');
+  // Explicit property access avoids implicit-any dynamic indexing on production TS builds
+  type TKey = 'T_hot' | 'T_cold' | 'T_wall';
+  const getT = (n: TProfileNode, key: TKey): number => {
+    if (key === 'T_hot')  return n.T_hot;
+    if (key === 'T_cold') return n.T_cold;
+    return n.T_wall;
+  };
+  const path = (key: TKey, col: string, dash?: string) => {
+    const d = nodes.map((n: TProfileNode, i: number) =>
+      `${i===0?'M':'L'}${sx(n.x).toFixed(1)},${sy(getT(n, key)).toFixed(1)}`
+    ).join(' ');
     return <path d={d} fill="none" stroke={col} strokeWidth={2} strokeDasharray={dash} opacity={0.9}/>;
   };
   return (
@@ -456,11 +499,11 @@ export default function HTAnalyserTab({ s1Results, s2Results, s3Results }: Props
     ng_mdot:   s1Results?.mdot_kgs ?? 1.389,
     T_ng_in:   s1Results?.T_in_C ?? 5,
     T_ng_out:  s1Results?.T_out_C ?? 40,
-    P_ng_op:   s1Results ? (s1Results.P_kPa/100 - 1.01325) : 70,
+    P_ng_op:   s1Results ? kPa_to_barg(s1Results.P_kPa) : 70,       // [barg] — converted from Stage 1 kPa
     foul_ng:   0.00017,
     foul_wb:   0.000088,
     b313_mat:  s3Results?.mat_label ?? 'A106B',
-    P_design:  s1Results?.P_des ? (s1Results.P_des/100 - 1.01325) : 77,
+    P_design:  s1Results?.P_des ? kPa_to_barg(s1Results.P_des) : 77, // [barg] — converted from Stage 1 kPa
     T_design:  (s1Results as any)?.T_des_C ?? 100,
     f_rad:     30,   // % radiation fraction
   });
@@ -488,8 +531,8 @@ export default function HTAnalyserTab({ s1Results, s2Results, s3Results }: Props
       ng_mdot:   s1Results?.mdot_kgs ?? f.ng_mdot,
       T_ng_in:   s1Results?.T_in_C ?? f.T_ng_in,
       T_ng_out:  s1Results?.T_out_C ?? f.T_ng_out,
-      P_ng_op:   s1Results ? (s1Results.P_kPa/100 - 1.01325) : f.P_ng_op,
-      P_design:  s1Results?.P_des ? (s1Results.P_des/100 - 1.01325) : f.P_design,
+      P_ng_op:   s1Results ? kPa_to_barg(s1Results.P_kPa) : f.P_ng_op,    // [barg]
+      P_design:  s1Results?.P_des ? kPa_to_barg(s1Results.P_des) : f.P_design,   // [barg]
     }));
   }, [s1Results, s2Results, s3Results]);
 
@@ -513,8 +556,8 @@ export default function HTAnalyserTab({ s1Results, s2Results, s3Results }: Props
   const f0 = (v: number) => isFinite(v) ? Math.round(v).toLocaleString() : '—';
 
   // 10-node temperature profiles
-  const ftProfile = React.useMemo(() => {
-    const nodes = [];
+  const ftProfile = React.useMemo((): TProfileNode[] => {
+    const nodes: TProfileNode[] = [];
     for (let i = 0; i <= 10; i++) {
       const x = (i / 10) * ht.L_ves * ht.N_ft_passes;
       const T_hot  = ht.T_fg_in  - (ht.T_fg_in  - ht.T_fg_out) * (i / 10);
@@ -525,8 +568,8 @@ export default function HTAnalyserTab({ s1Results, s2Results, s3Results }: Props
     return nodes;
   }, [ht]);
 
-  const pcProfile = React.useMemo(() => {
-    const nodes = [];
+  const pcProfile = React.useMemo((): TProfileNode[] => {
+    const nodes: TProfileNode[] = [];
     for (let i = 0; i <= 10; i++) {
       const x = (i / 10) * ht.L_pc_per_path * ht.N_paths;
       const T_cold = ht.T_ng_in + (ht.T_ng_out - ht.T_ng_in) * (i / 10);
