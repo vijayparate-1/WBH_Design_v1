@@ -1,9 +1,10 @@
 'use client';
+import React, { useRef } from 'react';
 // src/components/modules/FinalSummaryTab.tsx
 // Final Summary — Engineering Datasheet (per Q13903-QDS01 format) + Vessel Sketches
 // Two parts: (1) complete datasheet, (2) cross-section end view + longitudinal side view
 
-import { useRef } from 'react';
+
 import type { Stage1Results } from '@/lib/calculations/thermodynamics';
 import type { Stage2Results, Stage3Results } from '@/lib/calculations/heater-sizing';
 import type { SketcherResults } from './ShellSketcherTab';
@@ -21,6 +22,20 @@ interface DesignState {
 }
 
 interface Props { design: DesignState; }
+
+// Material options for user selection
+const SHELL_MATS = [
+  { id:'a516_70',    label:'ASTM A516 Gr 70 — CS Plate (standard)',       ca_default: 3 },
+  { id:'a240_316l',  label:'ASTM A240 316L — SS Plate (sour/cryogenic)',   ca_default: 0 },
+  { id:'a516_60',    label:'ASTM A516 Gr 60 — CS Plate (low strength)',    ca_default: 3 },
+  { id:'a285_c',     label:'ASTM A285 Gr C — CS Plate (pressure vessel)',  ca_default: 3 },
+];
+const FIRETUBE_MATS = [
+  { id:'a178c',      label:'ASTM A178 Gr C — ERW CS Tube (standard WBH)',  },
+  { id:'a214',       label:'ASTM A214 — ERW CS Heat Exchanger Tube',        },
+  { id:'a312_316l',  label:'ASTM A312 TP316L — SS Tube (sour/CO₂ service)' },
+  { id:'a335_p11',   label:'ASTM A335 P11 — Alloy Steel (high temp)',       },
+];
 
 // ─── Longitudinal (Side) View SVG ────────────────────────────────────────────
 // Schematic-quality vessel profile for proposals — not GA drafting standard.
@@ -245,8 +260,44 @@ function DSSection({ title, children }: { title: string; children: React.ReactNo
 
 // ─── MAIN COMPONENT ──────────────────────────────────────────────────────────
 export default function FinalSummaryTab({ design }: Props) {
-  const { s1, s2, s3, sketcher, projectInfo } = design;
+  const { s1, s2, s3, sketcher } = design;
   const printRef = useRef<HTMLDivElement>(null);
+  // Local editable project info — pre-filled from design.projectInfo if available
+  const [projInfo, setProjInfo] = React.useState({
+    client:   design.projectInfo?.client   ?? '',
+    quotation:design.projectInfo?.quotation ?? '',
+    project:  design.projectInfo?.project  ?? '',
+    tagNo:    design.projectInfo?.tagNo    ?? '',
+    rev:      design.projectInfo?.rev      ?? '0',
+    by:       design.projectInfo?.by       ?? '',
+    chkAppr:  design.projectInfo?.chkAppr  ?? '',
+    notes:    design.projectInfo?.notes    ?? '',
+    date:     design.projectInfo?.date     ?? new Date().toLocaleDateString('en-AU', { day:'2-digit', month:'short', year:'numeric' }),
+  });
+  const setP = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setProjInfo(p => ({ ...p, [k]: e.target.value }));
+
+  // Material selectors — default to typical WBH (CS), user can change for sour/cryogenic
+  const [shellMat, setShellMat] = React.useState(
+    s3?.mat_label?.includes('316') ? 'a240_316l' : 'a516_70'
+  );
+  const [fireMat, setFireMat] = React.useState('a178c');
+  const [shellCA, setShellCA] = React.useState(3);
+
+  const shellMatLabel = SHELL_MATS.find(m => m.id === shellMat)?.label ?? 'ASTM A516 Gr 70';
+  const fireMatLabel  = FIRETUBE_MATS.find(m => m.id === fireMat)?.label ?? 'ASTM A178 Gr C';
+
+  // Coil material from Stage 3 selector
+  const coilMat = s3?.mat_label
+    ? (() => {
+        const ml = s3.mat_label.toLowerCase();
+        if (ml.includes('316'))   return 'ASTM A312 TP316L SMLS Pipe / ASTM A403 WP316L';
+        if (ml.includes('333'))   return 'ASTM A333 Gr 6 SMLS Pipe / ASTM A420 WPL6 (Low-Temp)';
+        return 'ASTM A106 Gr B SMLS Pipe / ASTM A234 WPB';
+      })()
+    : 'ASTM A106 Gr B SMLS Pipe / ASTM A234 WPB';
+
+  const headerMat = coilMat; // headers same spec as coil for simplicity
   const f = (v: number|undefined, d=1) => v !== undefined && isFinite(v) ? v.toFixed(d) : '—';
   const f0 = (v: number|undefined) => f(v, 0);
   const f2 = (v: number|undefined) => f(v, 2);
@@ -276,6 +327,86 @@ export default function FinalSummaryTab({ design }: Props) {
 
   return (
     <div>
+      {/* Project Info + Material Selectors */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:12 }}>
+        {/* Project Info Form */}
+        <div className="panel">
+          <div className="panel-header"><div className="panel-title">Project Information</div></div>
+          <div className="panel-body">
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+              {[
+                { k:'client',   label:'Client' },
+                { k:'quotation',label:'Quotation No.' },
+                { k:'project',  label:'Project / Service' },
+                { k:'tagNo',    label:'Equipment Tag No.' },
+                { k:'rev',      label:'Rev' },
+                { k:'date',     label:'Date' },
+                { k:'by',       label:'By' },
+                { k:'chkAppr',  label:'Chk/Appr' },
+              ].map(fi => (
+                <div key={fi.k}>
+                  <label className="field-label">{fi.label}</label>
+                  <input type="text" value={projInfo[fi.k as keyof typeof projInfo]}
+                    onChange={setP(fi.k)} style={{ fontSize:11 }} />
+                </div>
+              ))}
+              <div style={{ gridColumn:'1/-1' }}>
+                <label className="field-label">Notes</label>
+                <input type="text" value={projInfo.notes} onChange={setP('notes')}
+                  style={{ width:'100%', fontSize:11 }} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Material Selectors */}
+        <div className="panel">
+          <div className="panel-header"><div className="panel-title">Material Specification</div></div>
+          <div className="panel-body">
+            <div style={{ display:'grid', gap:10 }}>
+              <div>
+                <label className="field-label">Shell Material</label>
+                <select value={shellMat} onChange={e => {
+                  setShellMat(e.target.value);
+                  const mat = SHELL_MATS.find(m => m.id === e.target.value);
+                  setShellCA(mat?.ca_default ?? 3);
+                }}>
+                  {SHELL_MATS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Shell Corrosion Allowance</label>
+                <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                  <input type="number" value={shellCA} min="0" max="6" step="0.5"
+                    onChange={e => setShellCA(parseFloat(e.target.value))}
+                    style={{ width:70 }} />
+                  <span style={{ fontFamily:'var(--mono)', fontSize:11, color:'var(--text-dim)' }}>mm</span>
+                </div>
+              </div>
+              <div>
+                <label className="field-label">Fire Tube Material</label>
+                <select value={fireMat} onChange={e => setFireMat(e.target.value)}>
+                  {FIRETUBE_MATS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="field-label">Process Coil Material</label>
+                <div style={{ fontFamily:'var(--mono)', fontSize:11, padding:'6px 8px',
+                  background:'var(--panel2)', borderRadius:4, color:'var(--text-dim)' }}>
+                  {coilMat.split('/')[0].trim()}
+                  <div style={{ fontSize:9, marginTop:2 }}>From Stage 3 material selection</div>
+                </div>
+              </div>
+              <div className="note-box" style={{ fontSize:10 }}>
+                <strong>Typical WBH (sweet gas):</strong> Shell A516 Gr 70 CS, Firetube A178 Gr C ERW CS, Coil A106 Gr B CS.<br/>
+                <strong>Sour service:</strong> All wetted parts SS 316L or NACE MR0175 CS with HIC testing.<br/>
+                <strong>Cryogenic (LNG):</strong> A333 Gr 6 / A240 316L per service temperature.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Print button */}
       <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12, gap:8 }}>
         <button className="btn btn-secondary btn-sm"
@@ -304,17 +435,17 @@ export default function FinalSummaryTab({ design }: Props) {
             </div>
             <div style={{ fontSize:10, textAlign:'right', color:'var(--text-dim)',
               fontFamily:'var(--mono)', lineHeight:1.8 }}>
-              <div>REV: {projectInfo?.rev ?? '0'} &nbsp; DATE: {projectInfo?.date ?? today}</div>
-              <div>BY: {projectInfo?.by ?? '—'} &nbsp; CHK/APPR: {projectInfo?.chkAppr ?? '—'}</div>
+              <div>REV: {projInfo.rev ?? '0'} &nbsp; DATE: {projInfo.date ?? today}</div>
+              <div>BY: {projInfo.by ?? '—'} &nbsp; CHK/APPR: {projInfo.chkAppr ?? '—'}</div>
             </div>
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:0,
             borderBottom:'1px solid var(--border)' }}>
             {[
-              ['Client:', projectInfo?.client ?? '(not set)'],
-              ['Quotation No.:', projectInfo?.quotation ?? '(not set)'],
-              ['Project / Service:', projectInfo?.project ?? '(not set)'],
-              ['Equipment Tag No.:', projectInfo?.tagNo ?? '(not set)'],
+              ['Client:', projInfo.client ?? '(not set)'],
+              ['Quotation No.:', projInfo.quotation ?? '(not set)'],
+              ['Project / Service:', projInfo.project ?? '(not set)'],
+              ['Equipment Tag No.:', projInfo.tagNo ?? '(not set)'],
             ].map(([k, v]) => (
               <div key={k} style={{ padding:'6px 16px', borderBottom:'1px solid var(--border)',
                 display:'flex', gap:8, fontSize:11 }}>
@@ -323,10 +454,10 @@ export default function FinalSummaryTab({ design }: Props) {
               </div>
             ))}
           </div>
-          {projectInfo?.notes && (
+          {projInfo.notes && (
             <div style={{ padding:'6px 16px', fontSize:11, color:'var(--text-dim)',
               borderBottom:'1px solid var(--border)' }}>
-              Notes: {projectInfo.notes}
+              Notes: {projInfo.notes}
             </div>
           )}
         </div>
@@ -439,7 +570,7 @@ export default function FinalSummaryTab({ design }: Props) {
                   <DSRow label="Shell Thickness" v1="10" unit="mm" />
                   <DSRow label="End Plate Thickness — coil / fire tubes" v1="16 / 16" unit="mm" />
                   <DSRow label="Corrosion Allowance" v1="0" unit="mm" />
-                  <DSRow label="Material" v1="ASTM A240 316L Plate" />
+                  <DSRow label="Material" v1={shellMatLabel} sub={`CA: ${shellCA} mm`} />
                   <DSRow label="PROCESS COIL" sub="" />
                   <DSRow label="Number of Flow Paths" v1={f0(s3?.n_pass)} />
                   <DSRow label="Number of Passes per Flow Path" v1={f0(s3?.n_rows)} />
@@ -451,12 +582,12 @@ export default function FinalSummaryTab({ design }: Props) {
                   <DSRow label="% Total Oversurface" v1={f2(s3?.area_margin_pct)} unit="%" />
                   <DSRow label="Corrosion Allowance — inside / outside" v1="0 / 0" unit="mm" />
                   <DSRow label="Material (Pipe / Fittings)"
-                    v1="ASTM A312 TP316L SMLS Pipe / ASTM A403-WP316L" />
+                    v1={coilMat} />
                   <DSRow label="HEADERS / TERMINAL POINTS" sub="" />
                   <DSRow label="Inlet / Outlet Header Size"
                     v1={s3 ? `DN${Math.max(200, (s3.n_pass ?? 1) * 100)} / Sch 80` : 'DN400 / Sch 80'} />
                   <DSRow label="Flange Rating" v1="ASME Class 600 / RFWN" />
-                  <DSRow label="Header Material" v1="ASTM A312 TP316L SMLS / ASTM A403-WP316L" />
+                  <DSRow label="Header Material" v1={headerMat} />
                   <DSRow label="FIRE TUBE & EXHAUST STACK" sub="" />
                   <DSRow label="Burner Type / Model" bold
                     v1={`Gas Fired – ${s2?.pipe ? 'Forced Draft' : 'Natural Draft'}`} />
@@ -471,7 +602,7 @@ export default function FinalSummaryTab({ design }: Props) {
                   <DSRow label="Average Fire Tube Outside Heat Flux"
                     v1={f2(s2?.heatFlux_kWm2)} unit="kW/m²"
                     sub={`API 12K limit: 37.9 kW/m² — ${s2?.fluxOK ? '✔ PASS' : '✘ FAIL'}`} />
-                  <DSRow label="Fire Tube Material" v1="ASTM A312 TP316L Welded / ASTM A403-WP316L" />
+                  <DSRow label="Fire Tube Material" v1={fireMatLabel} />
                   <DSRow label="Exhaust Stack Material" v1="API 5L ERW Grade B / ASTM A234 WPB" />
                 </DSSection>
 
